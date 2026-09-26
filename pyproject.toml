@@ -1,0 +1,16 @@
+[project]
+name = "agno-qa"
+version = "0.1.0"
+description = "Projeto inicial de agentes com Agno"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "agno>=3.0,<4.0",
+    "openai>=1.0",
+]
+
+[project.scripts]
+agno-qa = "app.main:main"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
