@@ -5,7 +5,7 @@ description = "Projeto inicial de agentes com Agno"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "agno>=3.0,<4.0",
+    "agno[os]>=3.0,<4.0",
     "openai>=1.0",
 ]
 
