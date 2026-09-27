@@ -8,7 +8,14 @@ import { RunEvent, RunResponseContent, type RunResponse } from '@/types/os'
 import useAIResponseStream from './useAIResponseStream'
 import { ToolCall } from '@/types/os'
 import { useQueryState } from 'nuqs'
-import { getJsonMarkdown } from '@/lib/utils'
+
+const extractReadableContent = (content: object): string | undefined => {
+  const record = content as Record<string, unknown>
+  for (const key of ['answer', 'response', 'text', 'message', 'content']) {
+    if (typeof record[key] === 'string') return record[key]
+  }
+  return undefined
+}
 
 const useAIChatStreamHandler = () => {
   const setMessages = useStore((state) => state.setMessages)
@@ -99,6 +106,7 @@ const useAIChatStreamHandler = () => {
 
   const handleStreamResponse = useCallback(
     async (input: string | FormData) => {
+      const startedAt = Date.now()
       setIsStreaming(true)
 
       const formData = input instanceof FormData ? input : new FormData()
@@ -131,7 +139,9 @@ const useAIChatStreamHandler = () => {
         role: 'agent',
         content: '',
         tool_calls: [],
+        active_tool_name: null,
         streamingError: false,
+        started_at: startedAt,
         created_at: Math.floor(Date.now() / 1000) + 1
       })
 
@@ -202,10 +212,27 @@ const useAIChatStreamHandler = () => {
                 const newMessages = [...prevMessages]
                 const lastMessage = newMessages[newMessages.length - 1]
                 if (lastMessage && lastMessage.role === 'agent') {
-                  lastMessage.tool_calls = processChunkToolCalls(
+                  const toolCalls = processChunkToolCalls(
                     chunk,
                     lastMessage.tool_calls
                   )
+                  const isToolStart =
+                    chunk.event === RunEvent.ToolCallStarted ||
+                    chunk.event === RunEvent.TeamToolCallStarted
+                  const incomingTool = chunk.tool ?? chunk.tools?.at(-1)
+                  lastMessage.tool_calls = toolCalls
+                  if (isToolStart) {
+                    lastMessage.active_tool_name =
+                      incomingTool?.tool_name ?? lastMessage.active_tool_name
+                  } else if (
+                    !incomingTool?.tool_call_id ||
+                    toolCalls.findLast(
+                      (toolCall) =>
+                        toolCall.tool_name === lastMessage.active_tool_name
+                    )?.tool_call_id === incomingTool.tool_call_id
+                  ) {
+                    lastMessage.active_tool_name = null
+                  }
                 }
                 return newMessages
               })
@@ -230,6 +257,12 @@ const useAIChatStreamHandler = () => {
                     chunk,
                     lastMessage.tool_calls
                   )
+                  if (lastMessage.thinking_seconds === undefined) {
+                    lastMessage.thinking_seconds = Math.max(
+                      0,
+                      Math.floor((Date.now() - startedAt) / 1000)
+                    )
+                  }
                   if (chunk.extra_data?.reasoning_steps) {
                     lastMessage.extra_data = {
                       ...lastMessage.extra_data,
@@ -259,12 +292,19 @@ const useAIChatStreamHandler = () => {
                   lastMessage &&
                   lastMessage.role === 'agent' &&
                   typeof chunk?.content !== 'string' &&
-                  chunk.content !== null
+                  chunk.content
                 ) {
-                  const jsonBlock = getJsonMarkdown(chunk?.content)
-
-                  lastMessage.content += jsonBlock
-                  lastContent = jsonBlock
+                  const readableContent = extractReadableContent(chunk.content)
+                  if (readableContent) {
+                    lastMessage.content += readableContent
+                    lastContent = readableContent
+                    if (lastMessage.thinking_seconds === undefined) {
+                      lastMessage.thinking_seconds = Math.max(
+                        0,
+                        Math.floor((Date.now() - startedAt) / 1000)
+                      )
+                    }
+                  }
                 } else if (
                   chunk.response_audio?.transcript &&
                   typeof chunk.response_audio?.transcript === 'string'
@@ -318,6 +358,32 @@ const useAIChatStreamHandler = () => {
               chunk.event === RunEvent.TeamRunError ||
               chunk.event === RunEvent.TeamRunCancelled
             ) {
+              if (
+                chunk.event === RunEvent.RunError &&
+                chunk.error_id === 'off_topic'
+              ) {
+                // A recusa de escopo é um RunError do Agno, mas é uma resposta
+                // esperada no chat. O texto é fixo para não exibir detalhes do erro.
+                setMessages((prevMessages) =>
+                  prevMessages.map((message, index) =>
+                    index === prevMessages.length - 1 &&
+                    message.role === 'agent'
+                      ? {
+                          ...message,
+                          content:
+                            'Só posso orientar sobre funcionalidades e regras de negócio do QuarkClinic.',
+                          streamingError: false,
+                          active_tool_name: null,
+                          started_at: undefined,
+                          thinking_seconds: undefined,
+                          created_at: chunk.created_at ?? message.created_at
+                        }
+                      : message
+                  )
+                )
+                setStreamingErrorMessage('')
+                return
+              }
               updateMessagesWithErrorState()
               const errorContent =
                 (chunk.content as string) ||
@@ -352,16 +418,22 @@ const useAIChatStreamHandler = () => {
                     let updatedContent: string
                     if (typeof chunk.content === 'string') {
                       updatedContent = chunk.content
+                    } else if (chunk.content) {
+                      updatedContent =
+                        extractReadableContent(chunk.content) ?? message.content
                     } else {
-                      try {
-                        updatedContent = JSON.stringify(chunk.content)
-                      } catch {
-                        updatedContent = 'Error parsing response'
-                      }
+                      updatedContent = message.content
                     }
                     return {
                       ...message,
                       content: updatedContent,
+                      active_tool_name: null,
+                      thinking_seconds:
+                        message.thinking_seconds ??
+                        Math.max(
+                          0,
+                          Math.floor((Date.now() - startedAt) / 1000)
+                        ),
                       tool_calls: processChunkToolCalls(
                         chunk,
                         message.tool_calls

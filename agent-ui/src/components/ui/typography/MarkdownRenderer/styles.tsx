@@ -45,38 +45,27 @@ const filterProps = (props: object) => {
 
 const UnorderedList = ({ className, ...props }: UnorderedListProps) => (
   <ul
-    className={cn(
-      className,
-      PARAGRAPH_SIZES.body,
-      'flex list-disc flex-col pl-10'
-    )}
+    className={cn(className, 'flex list-disc flex-col pl-8')}
     {...filterProps(props)}
   />
 )
 
 const OrderedList = ({ className, ...props }: OrderedListProps) => (
   <ol
-    className={cn(
-      className,
-      PARAGRAPH_SIZES.body,
-      'flex list-decimal flex-col pl-10'
-    )}
+    className={cn(className, 'flex list-decimal flex-col pl-8')}
     {...filterProps(props)}
   />
 )
 
 const Paragraph = ({ className, ...props }: ParagraphProps) => (
   <div
-    className={cn(className, PARAGRAPH_SIZES.body)}
+    className={cn(className, 'leading-inherit text-inherit')}
     {...filterProps(props)}
   />
 )
 
 const EmphasizedText = ({ className, ...props }: EmphasizedTextProps) => (
-  <em
-    className={cn(className, 'text-sm font-semibold')}
-    {...filterProps(props)}
-  />
+  <em className={cn(className, 'font-semibold')} {...filterProps(props)} />
 )
 
 const ItalicText = ({ className, ...props }: ItalicTextProps) => (
@@ -87,17 +76,11 @@ const ItalicText = ({ className, ...props }: ItalicTextProps) => (
 )
 
 const StrongText = ({ className, ...props }: StrongTextProps) => (
-  <strong
-    className={cn(className, 'text-sm font-semibold')}
-    {...filterProps(props)}
-  />
+  <strong className={cn(className, 'font-semibold')} {...filterProps(props)} />
 )
 
 const BoldText = ({ className, ...props }: BoldTextProps) => (
-  <b
-    className={cn(className, 'text-sm font-semibold')}
-    {...filterProps(props)}
-  />
+  <b className={cn(className, 'font-semibold')} {...filterProps(props)} />
 )
 
 const UnderlinedText = ({ className, ...props }: UnderlinedTextProps) => (
@@ -130,10 +113,7 @@ const InlineCode: FC<PreparedTextProps> = ({ children }) => {
 }
 
 const Blockquote = ({ className, ...props }: BlockquoteProps) => (
-  <blockquote
-    className={cn(className, 'italic', PARAGRAPH_SIZES.body)}
-    {...filterProps(props)}
-  />
+  <blockquote className={cn(className, 'italic')} {...filterProps(props)} />
 )
 
 const AnchorLink = ({ className, ...props }: AnchorLinkProps) => (

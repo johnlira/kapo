@@ -13,7 +13,7 @@ export default {
       colors: {
         primary: 'rgb(var(--color-primary) / <alpha-value>)',
         primaryAccent: 'rgb(var(--color-primary-accent) / <alpha-value>)',
-        brand: '#FF4017',
+        brand: 'rgb(var(--color-brand) / <alpha-value>)',
         background: {
           DEFAULT: 'rgb(var(--color-background) / <alpha-value>)',
           secondary: 'rgb(var(--color-background-secondary) / <alpha-value>)'

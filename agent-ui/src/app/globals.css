@@ -4,6 +4,7 @@
 
 @layer base {
   :root {
+    --color-brand: 255 64 23;
     --color-primary: 24 24 27;
     --color-primary-accent: 244 244 245;
     --color-background: 255 255 255;

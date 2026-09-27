@@ -1,4 +1,5 @@
 import { RunResponseContent } from '@/types/os'
+import { handleExpiredSession } from '@/api/auth-expiry'
 import { useCallback } from 'react'
 
 /**
@@ -212,6 +213,11 @@ export default function useAIResponseStream() {
               ? requestBody
               : JSON.stringify(requestBody)
         })
+
+        if (handleExpiredSession(response)) {
+          onComplete()
+          return
+        }
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => null)

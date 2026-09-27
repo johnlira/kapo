@@ -1,4 +1,4 @@
-import { auth } from '@/auth'
+import { auth, refreshGoogleIdToken } from '@/auth'
 import { getToken } from 'next-auth/jwt'
 
 export const runtime = 'nodejs'
@@ -31,9 +31,10 @@ async function proxy(
   if (!session?.user?.id || !session.user.email)
     return Response.json({ detail: 'Unauthorized' }, { status: 401 })
 
-  const cookieName = new URL(request.url).protocol === 'https:'
-    ? '__Secure-authjs.session-token'
-    : 'authjs.session-token'
+  const cookieName =
+    new URL(request.url).protocol === 'https:'
+      ? '__Secure-authjs.session-token'
+      : 'authjs.session-token'
   const token = await getToken({
     req: { headers: { cookie: request.headers.get('cookie') ?? '' } },
     secret: process.env.AUTH_SECRET,
@@ -44,12 +45,32 @@ async function proxy(
   if (
     !token ||
     token.googleSub !== session.user.id ||
-    token.email !== session.user.email ||
-    typeof token.googleIdToken !== 'string' ||
-    typeof token.googleIdTokenExpiresAt !== 'number' ||
-    token.googleIdTokenExpiresAt <= Math.floor(Date.now() / 1000)
+    token.email !== session.user.email
   )
     return Response.json({ detail: 'Google session expired' }, { status: 401 })
+
+  let googleIdToken = token.googleIdToken
+  if (
+    typeof googleIdToken !== 'string' ||
+    typeof token.googleIdTokenExpiresAt !== 'number'
+  )
+    return Response.json({ detail: 'Google session expired' }, { status: 401 })
+  if (token.googleIdTokenExpiresAt <= Math.floor(Date.now() / 1000) + 60) {
+    if (typeof token.googleRefreshToken !== 'string')
+      return Response.json(
+        { detail: 'Google session expired. Please sign in again.' },
+        { status: 401 }
+      )
+    try {
+      googleIdToken = (await refreshGoogleIdToken(token.googleRefreshToken))
+        .idToken
+    } catch {
+      return Response.json(
+        { detail: 'Google session expired. Please sign in again.' },
+        { status: 401 }
+      )
+    }
+  }
 
   const base = process.env.AGENTOS_URL
   if (!base)
@@ -104,7 +125,7 @@ async function proxy(
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id_token: token.googleIdToken }),
+        body: JSON.stringify({ id_token: googleIdToken }),
         cache: 'no-store'
       }
     )

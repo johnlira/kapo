@@ -1,19 +1,57 @@
-import Icon from '@/components/ui/icon'
 import MarkdownRenderer from '@/components/ui/typography/MarkdownRenderer'
 import { useStore } from '@/store'
 import type { ChatMessage } from '@/types/os'
 import Videos from './Multimedia/Videos'
 import Images from './Multimedia/Images'
 import Audios from './Multimedia/Audios'
-import { memo } from 'react'
+import { memo, useRef, useState, type RefObject } from 'react'
+import { Check, Copy } from 'lucide-react'
 import AgentThinkingLoader from './AgentThinkingLoader'
 
 interface MessageProps {
   message: ChatMessage
 }
 
-const AgentMessage = ({ message }: MessageProps) => {
+const CopyMessageButton = ({
+  content,
+  renderedContent
+}: {
+  content: string
+  renderedContent?: RefObject<HTMLDivElement | null>
+}) => {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        renderedContent?.current?.innerText?.trim() || content
+      )
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      aria-label={copied ? 'Copiado' : 'Copiar mensagem'}
+      title={copied ? 'Copiado' : 'Copiar mensagem'}
+      className="flex items-center gap-1.5 rounded-md p-1.5 text-sm text-muted transition-colors hover:bg-background-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    >
+      {copied ? <Check size={16} /> : <Copy size={16} />}
+      <span>{copied ? 'Copiado' : 'Copiar'}</span>
+    </button>
+  )
+}
+
+const AgentMessage = ({
+  message,
+  isActive = false
+}: MessageProps & { isActive?: boolean }) => {
   const { streamingErrorMessage } = useStore()
+  const renderedContent = useRef<HTMLDivElement>(null)
   let messageContent
   if (message.streamingError) {
     messageContent = (
@@ -69,23 +107,39 @@ const AgentMessage = ({ message }: MessageProps) => {
   }
 
   return (
-    <div className="flex flex-row items-start gap-4 font-geist">
-      <div className="flex-shrink-0">
-        <Icon type="agent" size="sm" />
+    <div className="min-w-0 font-geist text-secondary">
+      <div
+        ref={renderedContent}
+        className="text-[16px] leading-7 sm:text-[18px] sm:leading-8"
+      >
+        {messageContent}
       </div>
-      {messageContent}
+      {(message.content || message.response_audio?.transcript) && !isActive && (
+        <div className="mt-2">
+          <CopyMessageButton
+            content={
+              message.content || message.response_audio?.transcript || ''
+            }
+            renderedContent={renderedContent}
+          />
+        </div>
+      )}
     </div>
   )
 }
 
 const UserMessage = memo(({ message }: MessageProps) => {
   return (
-    <div className="flex items-start gap-4 pt-4 text-start max-md:break-words">
-      <div className="flex-shrink-0">
-        <Icon type="user" size="sm" />
-      </div>
-      <div className="text-md rounded-lg font-geist text-secondary">
-        {message.content}
+    <div className="flex justify-end text-start">
+      <div className="group flex max-w-[85%] flex-col items-end sm:max-w-[70%]">
+        <div className="w-full whitespace-pre-wrap break-words rounded-[26px] bg-[#e7f3ff] px-5 py-3 font-geist text-[16px] leading-7 text-[#152b48] dark:bg-[#263c50] dark:text-[#f1f6fc] sm:text-[18px] sm:leading-8">
+          {message.content}
+        </div>
+        {message.content && (
+          <div className="mt-2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+            <CopyMessageButton content={message.content} />
+          </div>
+        )}
       </div>
     </div>
   )

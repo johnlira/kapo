@@ -14,6 +14,7 @@ from app.sources import (
     search_functionality_catalog,
     search_repository_files,
 )
+from app.scope import enforce_functional_scope
 
 
 def create_agent() -> Agent:
@@ -39,6 +40,7 @@ def create_agent() -> Agent:
         ],
         tool_call_limit=int(os.getenv("AGNO_QA_TOOL_CALL_LIMIT", "8")),
         retries=0,
+        pre_hooks=[enforce_functional_scope],
         instructions=instructions,
         db=database,
         add_history_to_context=True,

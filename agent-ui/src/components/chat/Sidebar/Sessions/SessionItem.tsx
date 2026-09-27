@@ -10,6 +10,7 @@ import { useState } from 'react'
 import DeleteSessionModal from './DeleteSessionModal'
 import useChatActions from '@/hooks/useChatActions'
 import { cn } from '@/lib/utils'
+import { sessionTimestamp } from '@/lib/session-time'
 
 type SessionItemProps = SessionEntry & {
   isSelected: boolean
@@ -32,10 +33,8 @@ const SessionItem = ({
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const { clearChat } = useChatActions()
-  const timestamp = updated_at || created_at
-  const date = timestamp
-    ? new Date(timestamp * (timestamp < 1e12 ? 1000 : 1))
-    : null
+  const timestamp = sessionTimestamp(updated_at) || sessionTimestamp(created_at)
+  const date = timestamp ? new Date(timestamp) : null
   const dateLabel =
     date && !Number.isNaN(date.getTime())
       ? new Intl.DateTimeFormat('pt-BR', {
@@ -131,7 +130,7 @@ const SessionItem = ({
           variant="ghost"
           size="icon"
           aria-label={`Excluir conversa ${title || 'sem título'}`}
-          className="size-7 shrink-0 text-muted opacity-70 transition-all duration-200 ease-in-out hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+          className="size-7 shrink-0 text-muted opacity-0 transition-all duration-200 ease-in-out hover:text-destructive focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 max-md:opacity-100"
           onClick={(e) => {
             e.stopPropagation()
             setIsDeleteModalOpen(true)

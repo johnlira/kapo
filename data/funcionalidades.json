@@ -1113,10 +1113,16 @@
         "onde ver depósitos vinculados ao paciente",
         "abrir depósitos na ficha do paciente",
         "onde consultar depósitos no financeiro",
-        "depósitos associados ao paciente"
+        "depósitos associados ao paciente",
+        "adicionar saldo pré-pago para cliente",
+        "adicionar saldo pré-pago ao paciente",
+        "carteira de saldo pré-pago",
+        "crédito pré-pago do cliente"
       ],
       "analysis_files": [
-        "repositorios/front/quarkclinicng-front/src/app/modules/atendimento/pacientes/paciente-form/paciente-form.component.html"
+        "repositorios/front/quarkclinicng-front/src/app/modules/atendimento/pacientes/paciente-form/paciente-form.component.html",
+        "repositorios/front/quarkclinicng-front/src/app/modules/atendimento/pacientes/paciente-form/informacao-financeiro/deposito/deposito-form/deposito-form.component.html",
+        "repositorios/front/quarkclinicng-front/src/app/modules/atendimento/pacientes/paciente-form/informacao-financeiro/deposito/deposito-form/deposito-form.component.ts"
       ],
       "ui_routes": []
     },

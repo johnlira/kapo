@@ -54,6 +54,21 @@ class SourceLimitsTest(unittest.TestCase):
         self.assertEqual(len(response["resultados"]), 1)
         self.assertEqual(response["resultados"][0]["caminho"], "depositos.txt")
 
+    def test_hyphenated_prepaid_term_is_searchable_without_unrelated_hits(self):
+        (self.project / "pre-faturamento.txt").write_text("Pré-faturamento de consultas")
+        (self.project / "depositos.txt").write_text("Carteira de Saldo Pré-pago")
+
+        response = json.loads(sources.search_repository_files("demo", "pre-pago"))
+
+        self.assertEqual([result["caminho"] for result in response["resultados"]], ["depositos.txt"])
+        self.assertIn("pre-pago", response["resultados"][0]["frases_exatas_encontradas"])
+
+    def test_real_frontend_search_for_prepaid_finds_deposit_form(self):
+        with patch.object(sources, "REPOSITORIES_ROOT", sources.PROJECT_ROOT / "repositorios"):
+            response = json.loads(sources.search_repository_files("quarkclinicng-front", "pre-pago"))
+
+        self.assertTrue(any("/deposito/deposito-form/" in result["caminho"] for result in response["resultados"]))
+
     def test_search_ranks_specific_file_paths_above_generic_keyword_hits(self):
         for index in range(12):
             (self.project / f"generic-{index}.txt").write_text("saldo disponível")
@@ -84,6 +99,12 @@ class SourceLimitsTest(unittest.TestCase):
         ]
         self.assertTrue(deposits)
         self.assertEqual(deposits[0]["subfuncionalidade"], "Financeiro > Depósitos")
+
+    def test_catalog_search_finds_prepaid_balance_for_client(self):
+        response = json.loads(sources.search_functionality_catalog("saldo pré-pago cliente"))
+
+        self.assertEqual(response["resultados"][0]["codigo"], "ATEND_012.17")
+        self.assertTrue(any("/deposito/deposito-form/" in path for path in response["resultados"][0]["analysis_files"]))
 
 
 if __name__ == "__main__":

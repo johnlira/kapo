@@ -11,33 +11,10 @@ import SessionBlankState from './SessionBlankState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { SessionEntry } from '@/types/os'
+import { sessionSection, sessionTime } from '@/lib/session-time'
 import { Search } from 'lucide-react'
 
 const sections = ['Hoje', 'Ontem', 'Últimos 7 dias', 'Mais antigas'] as const
-
-const sessionTime = (entry: SessionEntry) => {
-  const timestamp = entry.updated_at || entry.created_at
-  return timestamp ? timestamp * (timestamp < 1e12 ? 1000 : 1) : 0
-}
-
-const sessionSection = (timestamp: number, today: number) => {
-  if (!timestamp || !Number.isFinite(timestamp)) return 'Mais antigas'
-  const date = new Date(timestamp)
-  if (Number.isNaN(date.getTime())) return 'Mais antigas'
-  const todayDate = new Date(today)
-  const daysAgo = Math.round(
-    (Date.UTC(
-      todayDate.getFullYear(),
-      todayDate.getMonth(),
-      todayDate.getDate()
-    ) -
-      Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())) /
-      86400000
-  )
-  if (daysAgo <= 0) return 'Hoje'
-  if (daysAgo === 1) return 'Ontem'
-  return daysAgo < 7 ? 'Últimos 7 dias' : 'Mais antigas'
-}
 
 interface SkeletonListProps {
   skeletonCount: number
@@ -107,7 +84,16 @@ const Sessions = () => {
   }, [])
 
   useEffect(() => {
-    if (hydrated && sessionId && selectedEndpoint && (agentId || teamId)) {
+    // RunStarted updates the URL before the run is persisted. The active chat
+    // already has its messages; only hydrate history on a fresh page load.
+    if (
+      hydrated &&
+      sessionId &&
+      selectedEndpoint &&
+      (agentId || teamId) &&
+      !useStore.getState().isStreaming &&
+      useStore.getState().messages.length === 0
+    ) {
       const entityType = agentId ? 'agent' : 'team'
       getSession({ entityType, agentId, teamId, dbId }, sessionId)
     }
@@ -139,12 +125,7 @@ const Sessions = () => {
   ])
 
   const groupedSessions = useMemo(() => {
-    const now = new Date()
-    const today = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate()
-    ).getTime()
+    const now = Date.now()
     const groups: Record<(typeof sections)[number], SessionEntry[]> = {
       Hoje: [],
       Ontem: [],
@@ -156,7 +137,7 @@ const Sessions = () => {
       (a, b) => sessionTime(b) - sessionTime(a)
     )) {
       if ((entry.session_name ?? '').toLocaleLowerCase().includes(query)) {
-        groups[sessionSection(sessionTime(entry), today)].push(entry)
+        groups[sessionSection(sessionTime(entry), now)].push(entry)
       }
     }
     return groups

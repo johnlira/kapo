@@ -15,7 +15,7 @@ const MessageArea = ({ userName }: { userName?: string | null }) => {
       initial="smooth"
     >
       <StickToBottom.Content className="flex min-h-full flex-col justify-center">
-        <div className="mx-auto w-full max-w-2xl space-y-9 px-4 pb-4">
+        <div className="mx-auto w-full max-w-[960px] space-y-10 px-4 pb-4 sm:px-6">
           <Messages messages={messages} userName={userName} />
         </div>
       </StickToBottom.Content>

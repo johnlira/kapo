@@ -42,6 +42,33 @@ class SourceImprovementsTest(unittest.TestCase):
         self.assertEqual(result["arquivos_nao_verificados_por_limite"], 0)
         self.assertFalse(result["varredura_completa"])
 
+    def test_private_files_are_not_sent_by_search_or_direct_read(self):
+        (self.project / "fluxo.txt").write_text("agendamento confirmado")
+        private_names = [".env", ".env.production", "service.pem", "credentials.json", "sessions.db"]
+        for name in private_names:
+            (self.project / name).write_text("agendamento TOKEN_PRIVADO")
+        hidden_dir = self.project / ".secrets"
+        hidden_dir.mkdir()
+        (hidden_dir / "notes.txt").write_text("agendamento TOKEN_PRIVADO")
+
+        searched = sources.search_repository_files("demo", "agendamento")
+        self.assertNotIn("TOKEN_PRIVADO", searched)
+        self.assertEqual([item["caminho"] for item in json.loads(searched)["resultados"]], ["fluxo.txt"])
+
+        paths = "\n".join([*private_names[:3], ".secrets/notes.txt", "fluxo.txt"])
+        read = sources.read_repository_paths("demo", paths)
+        self.assertNotIn("TOKEN_PRIVADO", read)
+        files = json.loads(read)["arquivos"]
+        self.assertTrue(all(item["estado"] == "ausente ou fora do escopo permitido" for item in files[:4]))
+        self.assertEqual(files[4]["conteudo"], "agendamento confirmado")
+
+    def test_private_source_cannot_be_read_through_nested_path(self):
+        hidden_dir = self.project / "src" / ".secrets"
+        hidden_dir.mkdir(parents=True)
+        (hidden_dir / "token.txt").write_text("TOKEN_PRIVADO")
+        result = json.loads(sources.read_repository_paths("demo", "src/.secrets/token.txt"))
+        self.assertEqual(result["arquivos"][0]["estado"], "ausente ou fora do escopo permitido")
+
     def test_results_truncated_independently_of_scan(self):
         for index in range(11):
             (self.project / f"match-{index}.txt").write_text("agendamento")

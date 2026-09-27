@@ -17,13 +17,24 @@ FUNCTIONALITY_CATALOG_PATH = PROJECT_ROOT / "data/funcionalidades.json"
 
 SKIP_DIRECTORIES = {
     ".git",
+    ".github",
+    ".secrets",
+    ".ssh",
+    ".venv",
     ".gradle",
+    "__pycache__",
     "build",
     "dist",
     "node_modules",
     "target",
     "vendor",
 }
+PRIVATE_FILE_NAMES = {
+    ".env", ".npmrc", ".pypirc", ".netrc", ".gitconfig",
+    "credentials", "credentials.json", "secrets.json", "service-account.json",
+    "id_rsa", "id_ed25519", "authorized_keys",
+}
+PRIVATE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".sqlite", ".db"}
 STACK_MARKERS = {
     "package.json": "Node.js",
     "build.gradle": "Gradle/JVM",
@@ -48,6 +59,23 @@ def _within(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _allowed_source(path: Path, project: Path) -> bool:
+    """Evita enviar credenciais e dados locais ao modelo por ferramentas de busca/leitura."""
+    if path.is_symlink() or not _within(path, project) or not _within(path, REPOSITORIES_ROOT):
+        return False
+    relative = path.relative_to(project)
+    if any(part.casefold() in SKIP_DIRECTORIES for part in relative.parts[:-1]):
+        return False
+    name = path.name.casefold()
+    return not (
+        name in PRIVATE_FILE_NAMES
+        or name.startswith(".env.")
+        or name.startswith("id_rsa")
+        or name.startswith("id_ed25519")
+        or path.suffix.casefold() in PRIVATE_SUFFIXES
+    )
 
 
 def _safe_directories(root: Path, *, depth: int | None = None):
@@ -187,8 +215,15 @@ def search_repository_files(project_name: str, terms: str) -> str:
         if "|" in terms
         else []
     )
+    hyphenated = (
+        []
+        if phrases
+        else list(dict.fromkeys(
+            match.group() for match in re.finditer(r"\b[a-z0-9]+(?:-[a-z0-9]+)+\b", _unaccent(terms))
+        ))
+    )
     keywords = list(dict.fromkeys(_search_tokens(terms)))
-    if not keywords:
+    if not keywords and not hyphenated:
         return json.dumps(
             {"projeto": project_name, "estado": "nenhum termo de busca útil", "resultados": []},
             ensure_ascii=False,
@@ -204,7 +239,7 @@ def search_repository_files(project_name: str, terms: str) -> str:
         subdirectories[:] = [name for name in subdirectories if name not in SKIP_DIRECTORIES]
         for filename in filenames:
             path = directory / filename
-            if path.is_symlink() or not _within(path, project) or not _within(path, REPOSITORIES_ROOT):
+            if not _allowed_source(path, project):
                 files_ignored += 1
                 continue
             if path.suffix.casefold() in {".class", ".jar", ".png", ".jpg", ".jpeg", ".pdf", ".zip"}:
@@ -223,21 +258,25 @@ def search_repository_files(project_name: str, terms: str) -> str:
                 continue
             files_checked += 1
             relative_path = path.relative_to(project).as_posix()
+            normalized_path = _unaccent(relative_path)
             path_matches = (
                 [phrase for phrase in phrases if phrase in relative_path.casefold()]
                 if phrases
                 else sorted(set(keywords) & set(_search_tokens(relative_path)))
             )
+            path_matches.extend(phrase for phrase in hyphenated if phrase in normalized_path)
             matching_lines = []
             for number, line in enumerate(content.splitlines(), start=1):
                 exact = [phrase for phrase in phrases if phrase in line.casefold()]
                 matches = exact if phrases else sorted(set(keywords) & set(_search_tokens(line)))
+                matches.extend(phrase for phrase in hyphenated if phrase in _unaccent(line))
                 if matches:
                     matching_lines.append(
                         {"linha": number, "trecho": line.strip()[:240], "correspondencias": matches}
                     )
             if matching_lines or path_matches:
                 matched_phrases = [phrase for phrase in phrases if phrase in content.casefold()]
+                matched_phrases.extend(phrase for phrase in hyphenated if phrase in _unaccent(content))
                 if phrases and not matched_phrases and not path_matches:
                     continue
                 files_with_matches += 1
@@ -298,8 +337,7 @@ def _matched_terms(line: str, keywords: list[str], phrases: list[str]) -> list[s
 
 def _search_tokens(value: str) -> list[str]:
     """Tokeniza sem acentos, descarta termos genéricos e normaliza plurais simples."""
-    normalized = unicodedata.normalize("NFKD", value.casefold())
-    unaccented = "".join(character for character in normalized if not unicodedata.combining(character))
+    unaccented = _unaccent(value)
     tokens = []
     for token in re.findall(r"[a-z0-9_]+", unaccented):
         if len(token) < 3 or token in SEARCH_STOPWORDS:
@@ -308,6 +346,11 @@ def _search_tokens(value: str) -> list[str]:
             token = token[:-1]
         tokens.append(token)
     return tokens
+
+
+def _unaccent(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value.casefold())
+    return "".join(character for character in normalized if not unicodedata.combining(character))
 
 
 def project_inventory(project_name: str) -> str:
@@ -603,7 +646,7 @@ def read_repository_paths(
             skipped_files += 1
             continue
         path = project / relative_path
-        if path.is_symlink() or not path.is_file() or not _within(path, project) or not _within(path, REPOSITORIES_ROOT):
+        if not _allowed_source(path, project) or not path.is_file():
             files.append({"caminho": relative_path, "estado": "ausente ou fora do escopo permitido"})
             continue
         selected_start = max(1, start_line) if start_line is not None else 1

@@ -1,6 +1,7 @@
 import { toast } from 'sonner'
 
 import { APIRoutes } from './routes'
+import { handleExpiredSession } from './auth-expiry'
 
 import { AgentDetails, Sessions, TeamDetails } from '@/types/os'
 
@@ -17,23 +18,8 @@ export const getAgentsAPI = async (
       method: 'GET',
       headers: createHeaders()
     })
+    if (handleExpiredSession(response)) return []
     if (!response.ok) {
-      if (response.status === 401) {
-        let detail = ''
-        try {
-          const body = await response.json()
-          detail = typeof body.detail === 'string' ? body.detail : ''
-        } catch {
-          // Keep the user-facing message useful even if the proxy returned no JSON.
-        }
-        toast.error(
-          detail === 'Google session expired' ||
-            detail === 'Google session rejected'
-            ? 'Sua sessão Google expirou. Saia e entre novamente.'
-            : 'Sua sessão não está ativa. Entre novamente para acessar o Kapo.'
-        )
-        return []
-      }
       toast.error(`Não foi possível carregar o Kapo: ${response.statusText}`)
       return []
     }
@@ -50,6 +36,7 @@ export const getStatusAPI = async (base: string): Promise<number> => {
     method: 'GET',
     headers: createHeaders()
   })
+  handleExpiredSession(response)
   return response.status
 }
 
@@ -69,6 +56,8 @@ export const getAllSessionsAPI = async (
       method: 'GET',
       headers: createHeaders()
     })
+
+    if (handleExpiredSession(response)) return { data: [] }
 
     if (!response.ok) {
       if (response.status === 404) {
@@ -100,6 +89,8 @@ export const getSessionAPI = async (
     }
   )
 
+  if (handleExpiredSession(response)) return null
+
   if (!response.ok) {
     throw new Error(`Failed to fetch session: ${response.statusText}`)
   }
@@ -121,6 +112,7 @@ export const deleteSessionAPI = async (
       headers: createHeaders()
     }
   )
+  handleExpiredSession(response)
   return response
 }
 
@@ -131,6 +123,7 @@ export const getTeamsAPI = async (endpoint: string): Promise<TeamDetails[]> => {
       method: 'GET',
       headers: createHeaders()
     })
+    if (handleExpiredSession(response)) return []
     if (!response.ok) {
       toast.error(`Failed to fetch  teams: ${response.statusText}`)
       return []
@@ -156,6 +149,8 @@ export const deleteTeamSessionAPI = async (
       headers: createHeaders()
     }
   )
+
+  if (handleExpiredSession(response)) return response
 
   if (!response.ok) {
     throw new Error(`Failed to delete team session: ${response.statusText}`)

@@ -9,6 +9,17 @@ O catálogo `data/funcionalidades.json` reúne termos de busca, funcionalidades,
 projetos e localizações candidatas. Ele serve como pista: o agente confirma o
 comportamento nos clones de `repositorios/` antes de responder.
 
+O atendimento é restrito a funcionalidades, fluxos e regras de negócio do
+QuarkClinic. O agente consulta o código apenas para confirmar o comportamento
+funcional e não deve divulgar arquivos, implementação, credenciais ou dados de
+sessões. Arquivos de credenciais e diretórios privados conhecidos são excluídos
+das ferramentas de busca e leitura; mantenha segredos fora dos clones e restrinja
+o acesso aos repositórios, banco de sessões e traces no host.
+Antes de cada execução, uma checagem de escopo classifica a pergunta por meio do
+modelo: pedidos claramente alheios ao produto recebem uma recusa antes da resposta
+do agente. Perguntas ambíguas que possam continuar um fluxo funcional seguem para
+investigação. A checagem adiciona uma chamada ao modelo por mensagem.
+
 ## Executar o AgentOS local
 
 O AgentOS local oferece API para a interface em `agent-ui/` e pode ser conectado

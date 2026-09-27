@@ -34,7 +34,7 @@ const ChatInput = () => {
   }
 
   return (
-    <div className="relative mx-auto mb-1 flex w-full max-w-2xl items-end justify-center gap-x-2 font-geist">
+    <div className="relative mx-auto mb-1 flex w-full max-w-[960px] items-end justify-center gap-x-2 font-geist">
       <TextArea
         placeholder="Como posso adicionar saldo pré-pago para um cliente?"
         value={inputMessage}
@@ -60,9 +60,9 @@ const ChatInput = () => {
           !(selectedAgent || teamId) || !inputMessage.trim() || isStreaming
         }
         size="icon"
-        className="rounded-xl bg-primary p-5 text-primaryAccent"
+        className="rounded-xl bg-brand p-5 text-white hover:bg-brand/90"
       >
-        <Icon type="send" className="text-primaryAccent" />
+        <Icon type="send" className="text-white" />
       </Button>
     </div>
   )

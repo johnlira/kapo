@@ -2,18 +2,18 @@ import type { ChatMessage } from '@/types/os'
 
 import { AgentMessage, UserMessage } from './MessageItem'
 import Tooltip from '@/components/ui/tooltip'
-import { memo } from 'react'
 import {
-  ToolCallProps,
   ReasoningStepProps,
   ReasoningProps,
   ReferenceData,
   Reference
 } from '@/types/os'
 import React, { type FC } from 'react'
+import { useEffect, useState } from 'react'
 
 import Icon from '@/components/ui/icon'
 import ChatBlankState from './ChatBlankState'
+import { useStore } from '@/store'
 
 interface MessageListProps {
   messages: ChatMessage[]
@@ -60,9 +60,46 @@ const References: FC<ReferenceProps> = ({ references }) => (
   </div>
 )
 
-const AgentMessageWrapper = ({ message }: MessageWrapperProps) => {
+const toolLabels: Record<string, string> = {
+  search_functionality_catalog: 'Buscando funcionalidades',
+  search_repository_files: 'Consultando código do QuarkClinic',
+  catalog_repositories: 'Verificando fontes disponíveis',
+  project_inventory: 'Conferindo módulos do sistema',
+  read_repository_paths: 'Lendo detalhes relevantes'
+}
+
+const AgentMessageWrapper = ({
+  message,
+  isLastMessage
+}: MessageWrapperProps) => {
+  const isStreaming = useStore((state) => state.isStreaming)
+  const isActive = isStreaming && isLastMessage
+  const toolCalls = message.tool_calls ?? []
+  const activeToolName = message.active_tool_name
+  const currentToolLabel = activeToolName
+    ? (toolLabels[activeToolName] ?? activeToolName.replaceAll('_', ' '))
+    : 'Preparando resposta'
+  const [elapsedSeconds, setElapsedSeconds] = useState(
+    message.thinking_seconds ?? 0
+  )
+  const startedAt = message.started_at
+
+  useEffect(() => {
+    if (!isActive || !startedAt || message.thinking_seconds !== undefined)
+      return
+    const updateElapsed = () =>
+      setElapsedSeconds(
+        Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+      )
+    updateElapsed()
+    const interval = window.setInterval(updateElapsed, 1000)
+    return () => window.clearInterval(interval)
+  }, [isActive, startedAt, message.thinking_seconds])
+
+  const thinkingSeconds = message.thinking_seconds ?? elapsedSeconds
+
   return (
-    <div className="flex flex-col gap-y-9">
+    <div className="flex flex-col gap-y-6">
       {message.extra_data?.reasoning_steps &&
         message.extra_data.reasoning_steps.length > 0 && (
           <div className="flex items-start gap-4">
@@ -86,31 +123,44 @@ const AgentMessageWrapper = ({ message }: MessageWrapperProps) => {
             </div>
           </div>
         )}
-      {message.tool_calls && message.tool_calls.length > 0 && (
-        <div className="flex items-start gap-3">
-          <Tooltip delayDuration={0} content={<p>Tool Calls</p>} side="top">
+      {((isActive && !message.content) ||
+        toolCalls.length > 0 ||
+        message.thinking_seconds !== undefined) && (
+        <details className="group max-w-xl text-muted">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-sm [&::-webkit-details-marker]:hidden">
+            <span className="font-medium">
+              {isActive
+                ? `${currentToolLabel} · ${thinkingSeconds}s`
+                : message.thinking_seconds !== undefined || message.started_at
+                  ? `Pensou por ${thinkingSeconds}s`
+                  : 'Investigação concluída'}
+            </span>
             <Icon
-              type="hammer"
-              className="rounded-lg bg-background-secondary p-1"
-              size="sm"
-              color="secondary"
+              type="chevron-down"
+              size="xs"
+              className="transition-transform group-open:rotate-180"
             />
-          </Tooltip>
-
-          <div className="flex flex-wrap gap-2">
-            {message.tool_calls.map((toolCall, index) => (
-              <ToolComponent
+          </summary>
+          <ol className="ml-1 mt-2 space-y-2 border-l border-border pl-4 text-sm">
+            {toolCalls.map((toolCall, index) => (
+              <li
                 key={
                   toolCall.tool_call_id ||
                   `${toolCall.tool_name}-${toolCall.created_at}-${index}`
                 }
-                tools={toolCall}
-              />
+                className="flex items-center gap-2 text-muted"
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${toolCall.tool_call_error ? 'bg-destructive' : 'bg-positive'}`}
+                />
+                {toolLabels[toolCall.tool_name] ??
+                  toolCall.tool_name.replaceAll('_', ' ')}
+              </li>
             ))}
-          </div>
-        </div>
+          </ol>
+        </details>
       )}
-      <AgentMessage message={message} />
+      <AgentMessage message={message} isActive={isActive} />
     </div>
   )
 }
@@ -134,12 +184,6 @@ const Reasonings: FC<ReasoningProps> = ({ reasoning }) => (
   </div>
 )
 
-const ToolComponent = memo(({ tools }: ToolCallProps) => (
-  <div className="cursor-default rounded-full bg-accent px-2 py-1.5 text-xs">
-    <p className="font-dmmono uppercase text-primary/80">{tools.tool_name}</p>
-  </div>
-))
-ToolComponent.displayName = 'ToolComponent'
 const Messages = ({ messages, userName }: MessageListProps) => {
   if (messages.length === 0) {
     return <ChatBlankState userName={userName} />

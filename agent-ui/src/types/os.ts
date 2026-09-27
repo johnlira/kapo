@@ -132,6 +132,7 @@ export interface RunResponseContent {
   content_type: string
   context?: MessageContext[]
   event: RunEvent
+  error_id?: string
   event_data?: object
   messages?: ModelMessage[]
   metrics?: object
@@ -154,6 +155,7 @@ export interface RunResponse {
   content_type: string
   context?: MessageContext[]
   event: RunEvent
+  error_id?: string
   event_data?: object
   messages?: ModelMessage[]
   metrics?: object
@@ -199,6 +201,9 @@ export interface ChatMessage {
   content: string
   streamingError?: boolean
   created_at: number
+  started_at?: number
+  thinking_seconds?: number
+  active_tool_name?: string | null
   tool_calls?: ToolCall[]
   extra_data?: {
     reasoning_steps?: ReasoningSteps[]
@@ -267,8 +272,8 @@ export interface Reference {
 export interface SessionEntry {
   session_id: string
   session_name: string
-  created_at: number
-  updated_at?: number
+  created_at: number | string
+  updated_at?: number | string | null
 }
 
 export interface Pagination {

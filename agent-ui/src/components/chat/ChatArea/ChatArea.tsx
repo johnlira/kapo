@@ -17,7 +17,7 @@ const ChatArea = ({
         <UserMenu name={user.name} email={user.email} image={user.image} />
       </header>
       <MessageArea userName={user.name} />
-      <div className="sticky bottom-0 ml-9 px-4 pb-2">
+      <div className="sticky bottom-0 px-4 pb-2 sm:px-6">
         <ChatInput />
       </div>
     </main>
