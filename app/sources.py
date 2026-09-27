@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import unicodedata
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -30,6 +31,15 @@ STACK_MARKERS = {
     "pom.xml": "Maven/JVM",
     "requirements.txt": "Python",
     "pyproject.toml": "Python",
+}
+MAX_SEARCH_RESULTS = 10
+MAX_SEARCH_RESULT_BYTES = 24_000
+MAX_READ_FILES = 5
+MAX_READ_FILE_BYTES = 12_000
+MAX_READ_TOTAL_BYTES = 32_000
+SEARCH_STOPWORDS = {
+    "a", "as", "o", "os", "de", "do", "da", "dos", "das", "no", "na", "nos",
+    "nas", "em", "para", "por", "e", "ou", "pre", "pago",
 }
 
 def _within(path: Path, root: Path) -> bool:
@@ -161,16 +171,19 @@ def search_repository_files(project_name: str, terms: str) -> str:
             ensure_ascii=False,
         )
 
-    phrases = [phrase.strip().casefold() for phrase in terms.split("|") if phrase.strip()]
-    stopwords = {"de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas", "e", "ou", "a", "o", "os", "as", "um", "uma", "para", "por", "com"}
-    keywords = [term.casefold() for term in re.findall(r"[\wÀ-ÿ]+", terms) if len(term) >= 3 and term.casefold() not in stopwords]
+    phrases = (
+        [phrase.strip().casefold() for phrase in terms.split("|") if phrase.strip()]
+        if "|" in terms
+        else []
+    )
+    keywords = list(dict.fromkeys(_search_tokens(terms)))
     if not keywords:
         return json.dumps(
             {"projeto": project_name, "estado": "nenhum termo de busca útil", "resultados": []},
             ensure_ascii=False,
         )
 
-    results = []
+    candidates = []
     files_checked = 0
     files_with_matches = 0
     max_files_checked = 5000
@@ -189,39 +202,50 @@ def search_repository_files(project_name: str, terms: str) -> str:
             except OSError:
                 continue
             files_checked += 1
+            relative_path = path.relative_to(project).as_posix()
+            path_matches = (
+                [phrase for phrase in phrases if phrase in relative_path.casefold()]
+                if phrases
+                else sorted(set(keywords) & set(_search_tokens(relative_path)))
+            )
             matching_lines = []
             for number, line in enumerate(content.splitlines(), start=1):
                 exact = [phrase for phrase in phrases if phrase in line.casefold()]
-                matches = exact if phrases else _matched_terms(line, keywords, [])
+                matches = exact if phrases else sorted(set(keywords) & set(_search_tokens(line)))
                 if matches:
-                    matching_lines.append({"linha": number, "trecho": line.strip()[:240], "correspondencias": matches})
-            if matching_lines:
-                files_with_matches += 1
-                relevant_matches = [
-                    match
-                    for match in matching_lines
-                    if phrases or match["correspondencias"]
-                ]
+                    matching_lines.append(
+                        {"linha": number, "trecho": line.strip()[:240], "correspondencias": matches}
+                    )
+            if matching_lines or path_matches:
                 matched_phrases = [phrase for phrase in phrases if phrase in content.casefold()]
-                if phrases and not matched_phrases:
+                if phrases and not matched_phrases and not path_matches:
                     continue
-                if not phrases and not relevant_matches:
-                    continue
-                results.append(
+                files_with_matches += 1
+                matching_lines.sort(key=lambda match: len(match["correspondencias"]), reverse=True)
+                relevance = len(path_matches) * 3 + sum(
+                    len(match["correspondencias"]) for match in matching_lines[:3]
+                )
+                candidates.append(
                     {
-                        "caminho": path.relative_to(project).as_posix(),
+                        "caminho": relative_path,
                         "caminho_verificado": True,
-                        "correspondencias": relevant_matches[:8] if relevant_matches else matching_lines[:8],
+                        "relevancia": relevance,
+                        "correspondencias_no_caminho": path_matches,
+                        "correspondencias": matching_lines[:8],
                         "frases_exatas_encontradas": matched_phrases,
                     }
                 )
-            if len(results) >= 30:
-                break
             if files_checked >= max_files_checked:
                 break
-        if len(results) >= 30 or files_checked >= max_files_checked:
+        if files_checked >= max_files_checked:
             break
 
+    candidates.sort(key=lambda result: result["relevancia"], reverse=True)
+    results = candidates[:MAX_SEARCH_RESULTS]
+    while results and len(json.dumps(results, ensure_ascii=False).encode("utf-8")) > MAX_SEARCH_RESULT_BYTES:
+        results.pop()
+    scan_complete = files_checked < max_files_checked
+    results_truncated = len(candidates) > len(results)
     return json.dumps(
         {
             "projeto": project_name,
@@ -231,9 +255,11 @@ def search_repository_files(project_name: str, terms: str) -> str:
             "arquivos_verificados": files_checked,
             "arquivos_com_correspondencia": files_with_matches,
             "resultados": results,
-            "limite_resultados": 30,
+            "limite_resultados": MAX_SEARCH_RESULTS,
             "limite_arquivos_verificados": max_files_checked,
-            "busca_completa": files_checked < max_files_checked and len(results) < 30,
+            "busca_completa": scan_complete and not results_truncated,
+            "resultados_truncados": results_truncated,
+            "limite_bytes_resultados": MAX_SEARCH_RESULT_BYTES,
         },
         ensure_ascii=False,
         indent=2,
@@ -249,6 +275,20 @@ def _matched_terms(line: str, keywords: list[str], phrases: list[str]) -> list[s
         if re.search(rf"(?<!\w){re.escape(keyword)}(?!\w)", normalized)
     )
     return list(dict.fromkeys(matched))
+
+
+def _search_tokens(value: str) -> list[str]:
+    """Tokeniza sem acentos, descarta termos genéricos e normaliza plurais simples."""
+    normalized = unicodedata.normalize("NFKD", value.casefold())
+    unaccented = "".join(character for character in normalized if not unicodedata.combining(character))
+    tokens = []
+    for token in re.findall(r"[a-z0-9_]+", unaccented):
+        if len(token) < 3 or token in SEARCH_STOPWORDS:
+            continue
+        if token.endswith("s") and len(token) > 4:
+            token = token[:-1]
+        tokens.append(token)
+    return tokens
 
 
 def project_inventory(project_name: str) -> str:
@@ -472,9 +512,14 @@ def read_repository_paths(
         )
 
     files = []
+    total_bytes = 0
+    skipped_files = 0
     for raw_path in paths.splitlines():
         relative_path = raw_path.strip()
         if not relative_path:
+            continue
+        if len(files) >= MAX_READ_FILES or total_bytes >= MAX_READ_TOTAL_BYTES:
+            skipped_files += 1
             continue
         path = project / relative_path
         if path.is_symlink() or not path.is_file() or not _within(path, project) or not _within(path, REPOSITORIES_ROOT):
@@ -490,7 +535,14 @@ def read_repository_paths(
         selected_end = min(len(lines), end_line) if end_line is not None else len(lines)
         selected = lines[selected_start - 1 : selected_end]
         ranged = start_line is not None or end_line is not None
-        rendered = "\n".join(f"{number}: {line}" for number, line in enumerate(selected, start=selected_start)) if ranged else content[:12_000]
+        rendered = "\n".join(f"{number}: {line}" for number, line in enumerate(selected, start=selected_start)) if ranged else content
+        remaining = min(MAX_READ_FILE_BYTES, MAX_READ_TOTAL_BYTES - total_bytes)
+        encoded = rendered.encode("utf-8")
+        truncated = len(encoded) > remaining
+        if truncated:
+            encoded = encoded[:remaining]
+            rendered = encoded.decode("utf-8", errors="ignore")
+        total_bytes += len(encoded)
         files.append(
             {
                 "caminho": relative_path,
@@ -499,11 +551,19 @@ def read_repository_paths(
                 "conteudo": rendered,
                 "linha_inicial": selected_start if ranged else 1,
                 "linha_final": min(selected_end, len(lines)) if ranged else min(len(lines), len(rendered.splitlines())),
-                "truncado": (len(content) > 12_000) if not ranged else selected_end < len(lines),
+                "truncado": truncated or (selected_end < len(lines) if ranged else len(content.encode("utf-8")) > len(encoded)),
+                "leitura_completa": not truncated and (not ranged or selected_end >= len(lines)),
             }
         )
     return json.dumps(
-        {"projeto": project_name, "estado": "caminhos conferidos", "arquivos": files},
+        {
+            "projeto": project_name,
+            "estado": "caminhos conferidos",
+            "arquivos": files,
+            "arquivos_ignorados_por_limite": skipped_files,
+            "leitura_completa": skipped_files == 0 and all(item.get("leitura_completa", True) for item in files),
+            "limites": {"arquivos": MAX_READ_FILES, "bytes_por_arquivo": MAX_READ_FILE_BYTES, "bytes_total": MAX_READ_TOTAL_BYTES},
+        },
         ensure_ascii=False,
         indent=2,
     )

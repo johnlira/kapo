@@ -18,7 +18,7 @@ from app.sources import (
 
 def create_agent() -> Agent:
     """Cria o assistente de atendimento funcional do projeto."""
-    instructions = (Path(__file__).resolve().parent.parent / ".agents/AGENTS.md").read_text(
+    instructions = (Path(__file__).resolve().parent / "agent_instructions.md").read_text(
         encoding="utf-8"
     )
     db_file = os.getenv("AGNO_QA_DB_FILE", ".agno/sessions.db")
@@ -37,6 +37,8 @@ def create_agent() -> Agent:
             search_functionality_catalog,
             search_repository_files,
         ],
+        tool_call_limit=int(os.getenv("AGNO_QA_TOOL_CALL_LIMIT", "8")),
+        retries=0,
         instructions=instructions,
         db=database,
         add_history_to_context=True,

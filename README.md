@@ -19,15 +19,17 @@ alterada com `AGNO_QA_PORT` no `.env`. Sessões e histórico são persistidos em
 AgentOS também são gravados nesse banco. As últimas três execuções da conversa
 entram no contexto. Configure
 `AGNO_QA_NUM_HISTORY_RUNS` para mudar o limite, `AGNO_QA_DB_FILE` para outro
-arquivo SQLite. A criação do provider fica isolada na configuração do Agent,
-permitindo trocar o adapter futuramente sem alterar as ferramentas ou instruções.
+arquivo SQLite. `AGNO_QA_TOOL_CALL_LIMIT` limita chamadas de ferramentas por
+execução (padrão 8), usando o limite nativo do Agno. As ferramentas limitam a
+busca a 10 resultados e a leitura a 5 arquivos, 12 KB por arquivo e 32 KB no
+total; indicam quando a saída ou investigação foi truncada/incompleta.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
 cp .env.example .env
-# Edite .env e preencha OPENAI_API_KEY; opcionalmente configure porta/banco/limite.
+# Edite .env e preencha OPENAI_API_KEY; os limites podem ser ajustados ali.
 agno-qa --serve
 ```
 
@@ -35,6 +37,9 @@ agno-qa --serve
 Responses API com reasoning `low`, configurável por
 `AGNO_QA_REASONING_EFFORT`. A porta configurada em `AGNO_QA_PORT` precisa ser
 usada também no endpoint do Agno UI.
+O agente não repete automaticamente chamadas do modelo (`retries=0`). Em caso de
+HTTP 429, a execução falha sem retries ilimitados; aguarde a janela de limite ou
+reduza a frequência/contexto antes de tentar novamente.
 
 Em outro terminal, inicie a interface oficial (requer Node e pnpm):
 
