@@ -1,7 +1,7 @@
 [project]
 name = "agno-qa"
 version = "0.1.0"
-description = "Projeto inicial de agentes com Agno"
+description = "Assistente funcional de atendimento QuarkClinic com Agno"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
