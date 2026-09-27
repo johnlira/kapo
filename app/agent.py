@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from agno.agent import Agent
+from agno.db.sqlite import SqliteDb
 from agno.models.openai import OpenAIResponses
 
 from app.sources import (
@@ -20,6 +21,9 @@ def create_agent() -> Agent:
     instructions = (Path(__file__).resolve().parent.parent / ".agents/AGENTS.md").read_text(
         encoding="utf-8"
     )
+    db_file = os.getenv("AGNO_QA_DB_FILE", ".agno/sessions.db")
+    database = SqliteDb(db_file=db_file)
+
     return Agent(
         name="Atendimento Funcional QuarkClinic",
         model=OpenAIResponses(
@@ -34,5 +38,8 @@ def create_agent() -> Agent:
             search_repository_files,
         ],
         instructions=instructions,
+        db=database,
+        add_history_to_context=True,
+        num_history_runs=int(os.getenv("AGNO_QA_NUM_HISTORY_RUNS", "3")),
         markdown=True,
     )

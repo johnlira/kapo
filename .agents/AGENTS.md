@@ -42,5 +42,8 @@ inventário de arquivos.
   caminhos de arquivos, classes, linhas, código, logs, ferramentas usadas ou uma
   seção de evidências por padrão. Mostre referências técnicas somente se forem
   solicitadas.
+- Use o histórico recente para resolver referências como “isso”, “esse campo” e
+  “nela”. Peça esclarecimento quando houver interpretações plausíveis que mudem
+  a orientação.
 - Faça uma pergunta de esclarecimento apenas quando faltar informação essencial.
 - Não exponha segredos encontrados nos arquivos nem altere os clones locais.

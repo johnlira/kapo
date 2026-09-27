@@ -41,7 +41,12 @@ def create_app():
 
     from app.agent import create_agent
 
-    return AgentOS(agents=[create_agent()]).get_app()
+    agent = create_agent()
+    return AgentOS(
+        agents=[agent],
+        db=agent.db,
+        tracing=True,
+    ).get_app()
 
 
 app = create_app()

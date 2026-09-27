@@ -2,6 +2,11 @@
 .venv/
 __pycache__/
 .pytest_cache/
+node_modules/
+.next/
+data/*.db
+data/*.db-*
+/.agno/
 *.py[cod]
 *.egg-info/
 PLANO.md
