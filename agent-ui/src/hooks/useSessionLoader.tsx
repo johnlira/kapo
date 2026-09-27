@@ -27,7 +27,6 @@ interface LoaderArgs {
 const useSessionLoader = () => {
   const setMessages = useStore((state) => state.setMessages)
   const selectedEndpoint = useStore((state) => state.selectedEndpoint)
-  const authToken = useStore((state) => state.authToken)
   const setIsSessionsLoading = useStore((state) => state.setIsSessionsLoading)
   const setSessionsData = useStore((state) => state.setSessionsData)
 
@@ -43,8 +42,7 @@ const useSessionLoader = () => {
           selectedEndpoint,
           entityType,
           selectedId,
-          dbId,
-          authToken
+          dbId
         )
         setSessionsData(sessions.data ?? [])
       } catch {
@@ -54,7 +52,7 @@ const useSessionLoader = () => {
         setIsSessionsLoading(false)
       }
     },
-    [selectedEndpoint, authToken, setSessionsData, setIsSessionsLoading]
+    [selectedEndpoint, setSessionsData, setIsSessionsLoading]
   )
 
   const getSession = useCallback(
@@ -77,8 +75,7 @@ const useSessionLoader = () => {
           selectedEndpoint,
           entityType,
           sessionId,
-          dbId,
-          authToken
+          dbId
         )
         if (response) {
           if (Array.isArray(response)) {
@@ -163,7 +160,7 @@ const useSessionLoader = () => {
         return null
       }
     },
-    [selectedEndpoint, authToken, setMessages]
+    [selectedEndpoint, setMessages]
   )
 
   return { getSession, getSessions }

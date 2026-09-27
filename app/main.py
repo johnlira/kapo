@@ -27,9 +27,9 @@ def serve() -> None:
     load_env()
     uvicorn.run(
         "app.main:app",
-        host="0.0.0.0",
+        host=os.getenv("AGNO_QA_HOST", "0.0.0.0"),
         port=int(os.getenv("AGNO_QA_PORT", "7777")),
-        reload=True,
+        reload=os.getenv("AGNO_QA_RELOAD", "false").lower() == "true",
     )
 
 
@@ -38,15 +38,95 @@ def create_app():
     load_env()
 
     from agno.os import AgentOS
+    from agno.os.config import AuthorizationConfig
+    from fastapi import FastAPI
+    import jwt
 
     from app.agent import create_agent
+    from app.auth import router, verification_keys
 
+    base_app = FastAPI()
+    base_app.include_router(router())
     agent = create_agent()
-    return AgentOS(
+    os_app = AgentOS(
         agents=[agent],
         db=agent.db,
         tracing=True,
+        base_app=base_app,
+        authorization=True,
+        authorization_config=AuthorizationConfig(
+            verification_keys=verification_keys(),
+            algorithm="RS256",
+            # Control Plane tokens use the AgentOS ID as audience; the local
+            # Google exchange uses its own audience. Signature keys are issuer-specific.
+            verify_audience=False,
+            user_isolation=True,
+            excluded_route_paths=["/auth/google"],
+        ),
     ).get_app()
+    # O mapeamento RBAC nativo permite rotas sem escopo; apenas a superfície
+    # consumida pelo chat fica acessível para tokens Google.
+    from fastapi.responses import JSONResponse
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class ChatSurface(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            path = request.url.path.rstrip("/") or "/"
+            parts = path.split("/")
+            # Let AgentOS's native CORS middleware answer browser preflight requests.
+            if request.method == "OPTIONS":
+                return await call_next(request)
+            if len(request.headers.getlist("authorization")) > 1:
+                return JSONResponse({"detail": "Ambiguous authorization"}, status_code=401)
+            if path not in ("/auth/google", "/health"):
+                authorization = request.headers.get("authorization", "")
+                if not authorization.startswith("Bearer "):
+                    return JSONResponse({"detail": "Bearer token required"}, status_code=401)
+                token = authorization[7:]
+                if token.startswith("agno_pat_"):
+                    # Allow the native AgentOS service-account verifier and RBAC to
+                    # authorize read-only Control Plane discovery and observability.
+                    platform_get = request.method == "GET" and (
+                        path in ("/info", "/openapi.json", "/config", "/models", "/registry",
+                                 "/agents", "/metrics", "/traces", "/trace_session_stats")
+                        or (len(parts) == 3 and parts[1] in ("agents", "metrics", "traces"))
+                    )
+                    if not platform_get:
+                        return JSONResponse({"detail": "Not available"}, status_code=404)
+                    return await call_next(request)
+                try:
+                    unverified_claims = jwt.decode(
+                        token,
+                        options={"verify_signature": False, "verify_aud": False},
+                    )
+                except jwt.PyJWTError:
+                    unverified_claims = None
+                if unverified_claims is not None and unverified_claims.get("iss") != "kapo-google":
+                    platform_get = request.method == "GET" and (
+                        path in ("/info", "/openapi.json", "/config", "/models", "/registry",
+                                 "/agents", "/metrics", "/traces", "/trace_session_stats")
+                        or (len(parts) == 3 and parts[1] in ("agents", "metrics", "traces"))
+                    )
+                    if not platform_get:
+                        return JSONResponse({"detail": "Not available"}, status_code=404)
+                    return await call_next(request)
+                if not token:
+                    return JSONResponse({"detail": "Bearer token required"}, status_code=401)
+            allowed = (
+                (request.method == "POST" and path == "/auth/google")
+                or (request.method == "GET" and path == "/health")
+                or (request.method == "GET" and path in ("/agents", "/sessions", "/traces"))
+                or (request.method == "GET" and len(parts) == 3 and parts[1] in ("agents", "sessions", "traces"))
+                or (request.method == "GET" and len(parts) == 4 and parts[1] == "sessions" and parts[3] == "runs")
+                or (request.method == "POST" and len(parts) == 4 and parts[1] == "agents" and parts[3] == "runs")
+                or (request.method == "DELETE" and len(parts) == 3 and parts[1] == "sessions")
+            )
+            if not allowed:
+                return JSONResponse({"detail": "Not available"}, status_code=404)
+            return await call_next(request)
+
+    os_app.add_middleware(ChatSurface)
+    return os_app
 
 
 app = create_app()

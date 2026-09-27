@@ -5,7 +5,6 @@ import { APIRoutes } from '@/api/routes'
 import useChatActions from '@/hooks/useChatActions'
 import { useStore } from '../store'
 import { RunEvent, RunResponseContent, type RunResponse } from '@/types/os'
-import { constructEndpointUrl } from '@/lib/constructEndpointUrl'
 import useAIResponseStream from './useAIResponseStream'
 import { ToolCall } from '@/types/os'
 import { useQueryState } from 'nuqs'
@@ -18,7 +17,6 @@ const useAIChatStreamHandler = () => {
   const [teamId] = useQueryState('team')
   const [sessionId, setSessionId] = useQueryState('session')
   const selectedEndpoint = useStore((state) => state.selectedEndpoint)
-  const authToken = useStore((state) => state.authToken)
   const mode = useStore((state) => state.mode)
   const setStreamingErrorMessage = useStore(
     (state) => state.setStreamingErrorMessage
@@ -140,7 +138,7 @@ const useAIChatStreamHandler = () => {
       let lastContent = ''
       let newSessionId = sessionId
       try {
-        const endpointUrl = constructEndpointUrl(selectedEndpoint)
+        const endpointUrl = selectedEndpoint
 
         let RunUrl: string | null = null
 
@@ -163,15 +161,8 @@ const useAIChatStreamHandler = () => {
         formData.append('stream', 'true')
         formData.append('session_id', sessionId ?? '')
 
-        // Create headers with auth token if available
-        const headers: Record<string, string> = {}
-        if (authToken) {
-          headers['Authorization'] = `Bearer ${authToken}`
-        }
-
         await streamResponse({
           apiUrl: RunUrl,
-          headers,
           requestBody: formData,
           onChunk: (chunk: RunResponse) => {
             if (
@@ -432,7 +423,6 @@ const useAIChatStreamHandler = () => {
       addMessage,
       updateMessagesWithErrorState,
       selectedEndpoint,
-      authToken,
       streamResponse,
       agentId,
       teamId,

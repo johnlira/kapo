@@ -61,3 +61,7 @@ if (( failed > 0 )); then
   done
   exit 1
 fi
+
+if (( updated > 0 )); then
+  date -u +'%Y-%m-%dT%H:%M:%SZ' > "$root/.ultima-sincronizacao-producao"
+fi

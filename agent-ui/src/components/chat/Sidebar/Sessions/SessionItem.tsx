@@ -9,35 +9,44 @@ import Icon from '@/components/ui/icon'
 import { useState } from 'react'
 import DeleteSessionModal from './DeleteSessionModal'
 import useChatActions from '@/hooks/useChatActions'
-import { truncateText, cn } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 
 type SessionItemProps = SessionEntry & {
   isSelected: boolean
   currentSessionId: string | null
-  onSessionClick: () => void
 }
 const SessionItem = ({
   session_name: title,
   session_id,
+  created_at,
+  updated_at,
   isSelected,
-  currentSessionId,
-  onSessionClick
+  currentSessionId
 }: SessionItemProps) => {
   const [agentId] = useQueryState('agent')
   const [teamId] = useQueryState('team')
   const [dbId] = useQueryState('db_id')
   const [, setSessionId] = useQueryState('session')
-  const authToken = useStore((state) => state.authToken)
   const { getSession } = useSessionLoader()
   const { selectedEndpoint, sessionsData, setSessionsData, mode } = useStore()
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const { clearChat } = useChatActions()
+  const timestamp = updated_at || created_at
+  const date = timestamp
+    ? new Date(timestamp * (timestamp < 1e12 ? 1000 : 1))
+    : null
+  const dateLabel =
+    date && !Number.isNaN(date.getTime())
+      ? new Intl.DateTimeFormat('pt-BR', {
+          day: '2-digit',
+          month: 'short'
+        }).format(date)
+      : null
 
   const handleGetSession = async () => {
     if (!(agentId || teamId || dbId)) return
 
-    onSessionClick()
     await getSession(
       {
         entityType: mode,
@@ -57,8 +66,7 @@ const SessionItem = ({
       const response = await deleteSessionAPI(
         selectedEndpoint,
         dbId ?? '',
-        session_id,
-        authToken
+        session_id
       )
 
       if (response?.ok && sessionsData) {
@@ -87,25 +95,43 @@ const SessionItem = ({
   return (
     <>
       <div
+        role="button"
+        tabIndex={0}
+        aria-current={isSelected ? 'page' : undefined}
         className={cn(
-          'group flex h-11 w-full items-center justify-between rounded-lg px-3 py-2 transition-colors duration-200',
+          'group flex min-h-12 w-full items-center justify-between gap-2 rounded-xl border-l-2 px-3 py-2 transition-colors duration-200',
           isSelected
-            ? 'cursor-default bg-primary/10'
-            : 'cursor-pointer bg-background-secondary hover:bg-background-secondary/80'
+            ? 'border-brand bg-brand/10'
+            : 'cursor-pointer border-transparent hover:bg-accent'
         )}
         onClick={handleGetSession}
+        onKeyDown={(event) => {
+          if (
+            event.target === event.currentTarget &&
+            (event.key === 'Enter' || event.key === ' ')
+          ) {
+            event.preventDefault()
+            handleGetSession()
+          }
+        }}
       >
-        <div className="flex flex-col gap-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <h4
-            className={cn('text-sm font-medium', isSelected && 'text-primary')}
+            className={cn(
+              'truncate text-sm font-medium text-secondary',
+              isSelected && 'text-brand'
+            )}
+            title={title}
           >
-            {truncateText(title, 20)}
+            {title || 'Conversa sem título'}
           </h4>
+          {dateLabel && <span className="text-xs text-muted">{dateLabel}</span>}
         </div>
         <Button
           variant="ghost"
           size="icon"
-          className="transform opacity-0 transition-all duration-200 ease-in-out group-hover:opacity-100"
+          aria-label={`Excluir conversa ${title || 'sem título'}`}
+          className="size-7 shrink-0 text-muted opacity-70 transition-all duration-200 ease-in-out hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
           onClick={(e) => {
             e.stopPropagation()
             setIsDeleteModalOpen(true)

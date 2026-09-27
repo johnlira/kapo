@@ -36,7 +36,7 @@ const ChatInput = () => {
   return (
     <div className="relative mx-auto mb-1 flex w-full max-w-2xl items-end justify-center gap-x-2 font-geist">
       <TextArea
-        placeholder={'Ask anything'}
+        placeholder="Como posso adicionar saldo pré-pago para um cliente?"
         value={inputMessage}
         onChange={(e) => setInputMessage(e.target.value)}
         onKeyDown={(e) => {
@@ -62,7 +62,7 @@ const ChatInput = () => {
         size="icon"
         className="rounded-xl bg-primary p-5 text-primaryAccent"
       >
-        <Icon type="send" color="primaryAccent" />
+        <Icon type="send" className="text-primaryAccent" />
       </Button>
     </div>
   )

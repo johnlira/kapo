@@ -214,8 +214,10 @@ export default function useAIResponseStream() {
         })
 
         if (!response.ok) {
-          const errorData = await response.json()
-          throw errorData
+          const errorData = await response.json().catch(() => null)
+          throw new Error(
+            errorData?.detail || `Request failed (${response.status})`
+          )
         }
         if (!response.body) {
           throw new Error('No response body')

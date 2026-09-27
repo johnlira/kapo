@@ -1,6 +1,5 @@
 import React from 'react'
 import { useStore } from '@/store'
-import { useQueryState } from 'nuqs'
 
 const HistoryBlankStateIcon = () => (
   <svg
@@ -9,10 +8,11 @@ const HistoryBlankStateIcon = () => (
     viewBox="0 0 90 89"
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
+    className="text-primary"
   >
     <path
       d="M60.0192 18.2484L75.7339 21.2565C80.9549 22.2558 84.3771 27.2984 83.3777 32.5194L80.3697 48.2341C79.3703 53.455 74.3277 56.8773 69.1067 55.8779L53.3921 52.8698C48.1711 51.8704 44.7489 46.8278 45.7482 41.6069L48.7563 25.8922C49.7557 20.6712 54.7983 17.249 60.0192 18.2484Z"
-      stroke="white"
+      stroke="currentColor"
       strokeOpacity="0.15"
       strokeWidth="0.75"
     />
@@ -56,13 +56,13 @@ const HistoryBlankStateIcon = () => (
     </g>
     <path
       d="M4.32008 49.0567C3.54981 43.797 7.18916 38.9088 12.4488 38.1386L28.2799 35.8201C33.5396 35.0498 38.4278 38.6892 39.198 43.9488L41.5165 59.7799C42.2868 65.0396 38.6474 69.9278 33.3878 70.698L17.5567 73.0165C12.297 73.7868 7.40882 70.1474 6.63855 64.8878L4.32008 49.0567Z"
-      stroke="white"
+      stroke="currentColor"
       strokeOpacity="0.15"
       strokeWidth="0.75"
     />
     <path
       d="M11.0451 56.1568C10.085 49.5994 14.6225 43.5051 21.18 42.545C27.7375 41.5848 33.8318 46.1224 34.7919 52.6799C35.7521 59.2374 31.2145 65.3316 24.657 66.2918C18.0995 67.2519 12.0053 62.7143 11.0451 56.1568Z"
-      fill="white"
+      fill="currentColor"
     />
     <g clipPath="url(#clip0_7378_12246)">
       <path
@@ -86,30 +86,22 @@ const HistoryBlankStateIcon = () => (
 )
 
 const SessionBlankState = () => {
-  const { selectedEndpoint, isEndpointActive } = useStore()
-  const [agentId] = useQueryState('agent')
-
-  const errorMessage = (() => {
-    switch (true) {
-      case !isEndpointActive:
-        return 'Endpoint is not connected. Please connect the endpoint to see the history.'
-      case !selectedEndpoint:
-        return 'Select an endpoint to see the history.'
-      case !agentId:
-        return 'Select an agent to see the history.'
-      default:
-        return 'No session records yet. Start a conversation to create one.'
-    }
-  })()
+  const isEndpointActive = useStore((state) => state.isEndpointActive)
 
   return (
     <div className="mt-1 flex items-center justify-center rounded-lg bg-background-secondary/50 pb-6 pt-4">
       <div className="flex flex-col items-center gap-1">
         <HistoryBlankStateIcon />
         <div className="flex flex-col items-center gap-2">
-          <h3 className="text-sm font-medium text-primary">No Session found</h3>
+          <h3 className="text-sm font-medium text-primary">
+            {isEndpointActive
+              ? 'Nenhuma conversa ainda'
+              : 'Histórico indisponível'}
+          </h3>
           <p className="max-w-[210px] text-center text-sm text-muted">
-            {errorMessage}
+            {isEndpointActive
+              ? 'Inicie uma conversa para vê-la aqui.'
+              : 'Não foi possível acessar o Kapo. Atualize o status para tentar novamente.'}
           </p>
         </div>
       </div>

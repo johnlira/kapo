@@ -4,48 +4,51 @@ import { APIRoutes } from './routes'
 
 import { AgentDetails, Sessions, TeamDetails } from '@/types/os'
 
-// Helper function to create headers with optional auth token
-const createHeaders = (authToken?: string): HeadersInit => {
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json'
-  }
-
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`
-  }
-
-  return headers
-}
+const createHeaders = (): HeadersInit => ({
+  'Content-Type': 'application/json'
+})
 
 export const getAgentsAPI = async (
-  endpoint: string,
-  authToken?: string
+  endpoint: string
 ): Promise<AgentDetails[]> => {
   const url = APIRoutes.GetAgents(endpoint)
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: createHeaders(authToken)
+      headers: createHeaders()
     })
     if (!response.ok) {
-      toast.error(`Failed to fetch  agents: ${response.statusText}`)
+      if (response.status === 401) {
+        let detail = ''
+        try {
+          const body = await response.json()
+          detail = typeof body.detail === 'string' ? body.detail : ''
+        } catch {
+          // Keep the user-facing message useful even if the proxy returned no JSON.
+        }
+        toast.error(
+          detail === 'Google session expired' ||
+            detail === 'Google session rejected'
+            ? 'Sua sessão Google expirou. Saia e entre novamente.'
+            : 'Sua sessão não está ativa. Entre novamente para acessar o Kapo.'
+        )
+        return []
+      }
+      toast.error(`Não foi possível carregar o Kapo: ${response.statusText}`)
       return []
     }
     const data = await response.json()
     return data
   } catch {
-    toast.error('Error fetching  agents')
+    toast.error('Não foi possível conectar ao Kapo.')
     return []
   }
 }
 
-export const getStatusAPI = async (
-  base: string,
-  authToken?: string
-): Promise<number> => {
+export const getStatusAPI = async (base: string): Promise<number> => {
   const response = await fetch(APIRoutes.Status(base), {
     method: 'GET',
-    headers: createHeaders(authToken)
+    headers: createHeaders()
   })
   return response.status
 }
@@ -54,18 +57,17 @@ export const getAllSessionsAPI = async (
   base: string,
   type: 'agent' | 'team',
   componentId: string,
-  dbId: string,
-  authToken?: string
+  dbId: string
 ): Promise<Sessions | { data: [] }> => {
   try {
-    const url = new URL(APIRoutes.GetSessions(base))
+    const url = new URL(APIRoutes.GetSessions(base), window.location.origin)
     url.searchParams.set('type', type)
     url.searchParams.set('component_id', componentId)
     url.searchParams.set('db_id', dbId)
 
     const response = await fetch(url.toString(), {
       method: 'GET',
-      headers: createHeaders(authToken)
+      headers: createHeaders()
     })
 
     if (!response.ok) {
@@ -84,8 +86,7 @@ export const getSessionAPI = async (
   base: string,
   type: 'agent' | 'team',
   sessionId: string,
-  dbId?: string,
-  authToken?: string
+  dbId?: string
 ) => {
   // build query string
   const queryParams = new URLSearchParams({ type })
@@ -95,7 +96,7 @@ export const getSessionAPI = async (
     `${APIRoutes.GetSession(base, sessionId)}?${queryParams.toString()}`,
     {
       method: 'GET',
-      headers: createHeaders(authToken)
+      headers: createHeaders()
     }
   )
 
@@ -109,8 +110,7 @@ export const getSessionAPI = async (
 export const deleteSessionAPI = async (
   base: string,
   dbId: string,
-  sessionId: string,
-  authToken?: string
+  sessionId: string
 ) => {
   const queryParams = new URLSearchParams()
   if (dbId) queryParams.append('db_id', dbId)
@@ -118,21 +118,18 @@ export const deleteSessionAPI = async (
     `${APIRoutes.DeleteSession(base, sessionId)}?${queryParams.toString()}`,
     {
       method: 'DELETE',
-      headers: createHeaders(authToken)
+      headers: createHeaders()
     }
   )
   return response
 }
 
-export const getTeamsAPI = async (
-  endpoint: string,
-  authToken?: string
-): Promise<TeamDetails[]> => {
+export const getTeamsAPI = async (endpoint: string): Promise<TeamDetails[]> => {
   const url = APIRoutes.GetTeams(endpoint)
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: createHeaders(authToken)
+      headers: createHeaders()
     })
     if (!response.ok) {
       toast.error(`Failed to fetch  teams: ${response.statusText}`)
@@ -150,14 +147,13 @@ export const getTeamsAPI = async (
 export const deleteTeamSessionAPI = async (
   base: string,
   teamId: string,
-  sessionId: string,
-  authToken?: string
+  sessionId: string
 ) => {
   const response = await fetch(
     APIRoutes.DeleteTeamSession(base, teamId, sessionId),
     {
       method: 'DELETE',
-      headers: createHeaders(authToken)
+      headers: createHeaders()
     }
   )
 

@@ -79,21 +79,34 @@ def _project_directories() -> dict[str, Path]:
             continue
         for project in category.iterdir():
             if project.is_dir() and not project.is_symlink() and _within(project, REPOSITORIES_ROOT):
-                projects[project.name] = project
+                projects[f"{category.name}/{project.name}"] = project
     return projects
 
 
 def _project_path(project_name: str) -> Path | None:
     """Resolve nome de clone sem seguir links para fora da árvore permitida."""
-    if REPOSITORIES_ROOT.is_symlink() or not REPOSITORIES_ROOT.is_dir():
-        return None
-    for category in REPOSITORIES_ROOT.iterdir():
-        if category.is_symlink() or not category.is_dir() or not _within(category, REPOSITORIES_ROOT):
-            continue
-        project = category / project_name
-        if project.is_dir() and not project.is_symlink() and _within(project, REPOSITORIES_ROOT):
-            return project
-    return None
+    available = _project_directories()
+    if "/" in project_name or "\\" in project_name:
+        return available.get(project_name)
+    matches = [path for path in available.values() if path.name == project_name]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _project_options(project_name: str) -> list[str]:
+    if "/" in project_name or "\\" in project_name:
+        return []
+    matches = sorted(name for name in _project_directories() if name.endswith(f"/{project_name}"))
+    return matches if len(matches) > 1 else []
+
+
+def _missing_project(project_name: str, **fields) -> str:
+    options = _project_options(project_name)
+    return json.dumps(
+        {"projeto": project_name,
+         "estado": "nome ambíguo; informe grupo/projeto" if options else "ausente localmente ou nome não encontrado",
+         **fields, "opcoes": options},
+        ensure_ascii=False,
+    )
 
 
 def _stack(project: Path) -> str:
@@ -131,8 +144,9 @@ def catalog_repositories() -> str:
     catalog_names: set[str] = set()
     for entry in catalog_rows:
         name = entry.get("nome", "")
-        catalog_names.add(name)
-        project = available.get(name)
+        key = f"{entry.get('grupo', '')}/{name}"
+        catalog_names.add(key)
+        project = available.get(key)
         rows.append(
             {
                 "grupo_catalogado": entry.get("grupo", ""),
@@ -144,12 +158,12 @@ def catalog_repositories() -> str:
                 "stack_detectada": _stack(project) if project else None,
             }
         )
-    for name, project in sorted(available.items()):
-        if name not in catalog_names:
+    for key, project in sorted(available.items()):
+        if key not in catalog_names:
             rows.append(
                 {
                     "grupo_catalogado": project.parent.name,
-                    "projeto": name,
+                    "projeto": project.name,
                     "clone": "disponível, não catalogado",
                     "diretorio_real": project.relative_to(PROJECT_ROOT).as_posix(),
                     "stack_detectada": _stack(project),
@@ -166,10 +180,7 @@ def search_repository_files(project_name: str, terms: str) -> str:
     """Busca termos em nomes/conteúdo e retorna trechos para validar pertinência."""
     project = _project_path(project_name)
     if project is None:
-        return json.dumps(
-            {"projeto": project_name, "estado": "ausente localmente ou nome não encontrado", "resultados": []},
-            ensure_ascii=False,
-        )
+        return _missing_project(project_name, resultados=[])
 
     phrases = (
         [phrase.strip().casefold() for phrase in terms.split("|") if phrase.strip()]
@@ -186,20 +197,29 @@ def search_repository_files(project_name: str, terms: str) -> str:
     candidates = []
     files_checked = 0
     files_with_matches = 0
+    files_ignored = 0
+    files_unchecked = 0
     max_files_checked = 5000
     for directory, subdirectories, filenames in _safe_directories(project):
         subdirectories[:] = [name for name in subdirectories if name not in SKIP_DIRECTORIES]
         for filename in filenames:
             path = directory / filename
             if path.is_symlink() or not _within(path, project) or not _within(path, REPOSITORIES_ROOT):
+                files_ignored += 1
                 continue
             if path.suffix.casefold() in {".class", ".jar", ".png", ".jpg", ".jpeg", ".pdf", ".zip"}:
+                files_ignored += 1
                 continue
             try:
                 if path.stat().st_size > 512_000:
+                    files_ignored += 1
+                    continue
+                if files_checked >= max_files_checked:
+                    files_unchecked += 1
                     continue
                 content = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
+                files_ignored += 1
                 continue
             files_checked += 1
             relative_path = path.relative_to(project).as_posix()
@@ -235,16 +255,12 @@ def search_repository_files(project_name: str, terms: str) -> str:
                         "frases_exatas_encontradas": matched_phrases,
                     }
                 )
-            if files_checked >= max_files_checked:
-                break
-        if files_checked >= max_files_checked:
-            break
 
     candidates.sort(key=lambda result: result["relevancia"], reverse=True)
     results = candidates[:MAX_SEARCH_RESULTS]
     while results and len(json.dumps(results, ensure_ascii=False).encode("utf-8")) > MAX_SEARCH_RESULT_BYTES:
         results.pop()
-    scan_complete = files_checked < max_files_checked
+    scan_complete = files_unchecked == 0 and files_ignored == 0
     results_truncated = len(candidates) > len(results)
     return json.dumps(
         {
@@ -253,11 +269,14 @@ def search_repository_files(project_name: str, terms: str) -> str:
             "termos": keywords,
             "frases_exatas": phrases,
             "arquivos_verificados": files_checked,
+            "arquivos_ignorados": files_ignored,
+            "arquivos_nao_verificados_por_limite": files_unchecked,
             "arquivos_com_correspondencia": files_with_matches,
             "resultados": results,
             "limite_resultados": MAX_SEARCH_RESULTS,
             "limite_arquivos_verificados": max_files_checked,
             "busca_completa": scan_complete and not results_truncated,
+            "varredura_completa": scan_complete,
             "resultados_truncados": results_truncated,
             "limite_bytes_resultados": MAX_SEARCH_RESULT_BYTES,
         },
@@ -295,10 +314,7 @@ def project_inventory(project_name: str) -> str:
     """Confere a presença e stack de um projeto citado, sem navegar seu conteúdo."""
     project = _project_path(project_name)
     if project is None:
-        return json.dumps(
-            {"projeto": project_name, "estado": "ausente localmente ou nome não encontrado"},
-            ensure_ascii=False,
-        )
+        return _missing_project(project_name)
     return json.dumps(
         {
             "projeto": project_name,
@@ -308,6 +324,66 @@ def project_inventory(project_name: str) -> str:
         },
         ensure_ascii=False,
     )
+
+
+def _validate_functionality_catalog(catalog: object) -> list[str]:
+    """Confere o formato usado pela busca e referências a projetos catalogados."""
+    errors = []
+    if not isinstance(catalog, dict):
+        return ["catálogo deve ser um objeto"]
+    fields = ("records", "module_notes", "projects", "module_prefix_map", "confirmed_locations")
+    for field in fields:
+        if not isinstance(catalog.get(field), list) or not all(isinstance(item, dict) for item in catalog[field]):
+            errors.append(f"{field} deve ser uma lista de objetos")
+    if errors:
+        return errors
+    names = set()
+    for index, project in enumerate(catalog["projects"]):
+        group, name = project.get("group"), project.get("name")
+        if not isinstance(group, str) or not group or not isinstance(name, str) or not name:
+            errors.append(f"projects[{index}]: grupo/projeto inválido")
+        else:
+            names.add((group, name))
+        repository = project.get("repository")
+        if repository is not None and (
+            not isinstance(repository, dict)
+            or (repository.get("repository_group"), repository.get("project")) != (group, name)
+        ):
+            errors.append(f"projects[{index}]: referência de repositório inválida")
+    for field in ("module_prefix_map", "confirmed_locations"):
+        for index, item in enumerate(catalog[field]):
+            for key in ("frontend_projects", "backend_projects", "complementary_projects"):
+                if key not in item:
+                    continue
+                references = item[key]
+                if not isinstance(references, list):
+                    errors.append(f"{field}[{index}].{key}: lista inválida")
+                    continue
+                for reference in references:
+                    if not isinstance(reference, dict) or (
+                        reference.get("repository_group"), reference.get("project")
+                    ) not in names:
+                        errors.append(f"{field}[{index}].{key}: projeto inexistente: {reference}")
+    for index, record in enumerate(catalog["records"]):
+        if not all(isinstance(record.get(key), str) for key in ("code", "module", "functionality")):
+            errors.append(f"records[{index}]: identificação inválida")
+        for key in ("search_terms", "navigation_path", "analysis_files", "ui_routes"):
+            value = record.get(key)
+            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+                errors.append(f"records[{index}].{key}: lista inválida")
+        sections = record.get("clinic_configuration_sections", [])
+        if not isinstance(sections, list) or not all(
+            isinstance(section, dict) and isinstance(section.get("settings", []), list) and all(
+                isinstance(setting, dict) for setting in section.get("settings", [])
+            ) for section in sections
+        ):
+            errors.append(f"records[{index}]: seções inválidas")
+    for index, note in enumerate(catalog["module_notes"]):
+        if not isinstance(note.get("settings", []), list) or not all(
+            isinstance(setting, dict) for setting in note.get("settings", [])
+        ):
+            errors.append(f"module_notes[{index}]: configurações inválidas")
+    return errors
 
 
 def search_functionality_catalog(terms: str) -> str:
@@ -327,6 +403,12 @@ def search_functionality_catalog(terms: str) -> str:
     except (OSError, json.JSONDecodeError) as error:
         return json.dumps(
             {"estado": "não foi possível ler o catálogo", "detalhe": str(error), "resultados": []},
+            ensure_ascii=False,
+        )
+    errors = _validate_functionality_catalog(catalog)
+    if errors:
+        return json.dumps(
+            {"estado": "catálogo de funcionalidades inválido", "detalhes": errors[:10], "resultados": []},
             ensure_ascii=False,
         )
 
@@ -479,6 +561,8 @@ def search_functionality_catalog(terms: str) -> str:
             "termos": query_phrases,
             "resultados": results[:15],
             "limite_resultados": 15,
+            "total_resultados": len(results),
+            "resultados_truncados": len(results) > 15,
             "aviso": "Resultados são pistas de navegação; valide arquivos e comportamento no repositório.",
         },
         ensure_ascii=False,
@@ -506,10 +590,7 @@ def read_repository_paths(
     """Valida e lê caminhos relativos selecionados dentro de um clone local."""
     project = _project_path(project_name)
     if project is None:
-        return json.dumps(
-            {"projeto": project_name, "estado": "ausente localmente ou nome não encontrado", "arquivos": []},
-            ensure_ascii=False,
-        )
+        return _missing_project(project_name, arquivos=[])
 
     files = []
     total_bytes = 0
@@ -525,34 +606,67 @@ def read_repository_paths(
         if path.is_symlink() or not path.is_file() or not _within(path, project) or not _within(path, REPOSITORIES_ROOT):
             files.append({"caminho": relative_path, "estado": "ausente ou fora do escopo permitido"})
             continue
+        selected_start = max(1, start_line) if start_line is not None else 1
+        ranged = start_line is not None or end_line is not None
+        remaining = min(MAX_READ_FILE_BYTES, MAX_READ_TOTAL_BYTES - total_bytes)
         try:
-            content = path.read_text(encoding="utf-8", errors="replace")
+            if ranged:
+                # O total de linhas só é conhecido quando o intervalo alcança o fim do arquivo.
+                rendered_lines = []
+                used_bytes = 0
+                truncated = False
+                selected_end = selected_start - 1
+                line_count = 0
+                ended_at_eof = True
+                with path.open(encoding="utf-8", errors="replace", newline="") as source:
+                    for number, line in enumerate(source, start=1):
+                        line_count = number
+                        if number < selected_start:
+                            continue
+                        if end_line is not None and number > end_line:
+                            ended_at_eof = False
+                            break
+                        selected_end = number
+                        piece = ("\n" if rendered_lines else "") + f"{number}: {line.rstrip('\r\n')}"
+                        piece_bytes = piece.encode("utf-8")
+                        if used_bytes + len(piece_bytes) > remaining:
+                            prefix = piece_bytes[:remaining - used_bytes].decode("utf-8", errors="ignore")
+                            rendered_lines.append(prefix)
+                            used_bytes += len(prefix.encode("utf-8"))
+                            truncated = True
+                        else:
+                            rendered_lines.append(piece)
+                            used_bytes += len(piece_bytes)
+                        if truncated:
+                            ended_at_eof = False
+                            break
+                rendered = "".join(rendered_lines)
+                more_lines = not ended_at_eof and not truncated
+                line_total = line_count if ended_at_eof else None
+            else:
+                content = path.read_text(encoding="utf-8", errors="replace")
+                lines = content.splitlines()
+                line_total = len(lines)
+                selected_end = line_total
+                encoded = content.encode("utf-8")
+                truncated = len(encoded) > remaining
+                rendered = encoded[:remaining].decode("utf-8", errors="ignore") if truncated else content
+                used_bytes = len(rendered.encode("utf-8"))
+                more_lines = False
         except OSError:
             files.append({"caminho": relative_path, "estado": "não foi possível ler"})
             continue
-        lines = content.splitlines()
-        selected_start = max(1, start_line) if start_line is not None else 1
-        selected_end = min(len(lines), end_line) if end_line is not None else len(lines)
-        selected = lines[selected_start - 1 : selected_end]
-        ranged = start_line is not None or end_line is not None
-        rendered = "\n".join(f"{number}: {line}" for number, line in enumerate(selected, start=selected_start)) if ranged else content
-        remaining = min(MAX_READ_FILE_BYTES, MAX_READ_TOTAL_BYTES - total_bytes)
-        encoded = rendered.encode("utf-8")
-        truncated = len(encoded) > remaining
-        if truncated:
-            encoded = encoded[:remaining]
-            rendered = encoded.decode("utf-8", errors="ignore")
-        total_bytes += len(encoded)
+        total_bytes += used_bytes
         files.append(
             {
                 "caminho": relative_path,
                 "caminho_verificado": True,
-                "linhas": len(content.splitlines()),
+                "linhas": line_total,
                 "conteudo": rendered,
                 "linha_inicial": selected_start if ranged else 1,
-                "linha_final": min(selected_end, len(lines)) if ranged else min(len(lines), len(rendered.splitlines())),
-                "truncado": truncated or (selected_end < len(lines) if ranged else len(content.encode("utf-8")) > len(encoded)),
-                "leitura_completa": not truncated and (not ranged or selected_end >= len(lines)),
+                "linha_final": selected_end if ranged else min(line_total, len(rendered.splitlines())),
+                "truncado": truncated or more_lines,
+                "leitura_completa": not truncated and not more_lines,
             }
         )
     return json.dumps(

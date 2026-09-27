@@ -4,8 +4,26 @@
 
 @layer base {
   :root {
-    --color-border-default: 255, 255, 255, 0.2;
+    --color-primary: 24 24 27;
+    --color-primary-accent: 244 244 245;
+    --color-background: 255 255 255;
+    --color-background-secondary: 244 244 245;
+    --color-secondary: 39 39 42;
+    --color-accent: 235 235 238;
+    --color-muted: 82 82 91;
+    --color-border-default: 24, 24, 27, 0.18;
     --scrollbar-width: 0.1rem;
+  }
+
+  .dark {
+    --color-primary: 250 250 250;
+    --color-primary-accent: 24 24 27;
+    --color-background: 17 17 19;
+    --color-background-secondary: 39 39 42;
+    --color-secondary: 245 245 245;
+    --color-accent: 39 39 42;
+    --color-muted: 161 161 170;
+    --color-border-default: 255, 255, 255, 0.2;
   }
 
   body {
@@ -18,11 +36,8 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  --tw-border-opacity: 1;
   @apply bg-border;
-  border-color: rgba(255, 255, 255, var(--tw-border-opacity));
   border-radius: 9999px;
-  border-width: 1px;
 }
 
 ::-webkit-scrollbar-track {

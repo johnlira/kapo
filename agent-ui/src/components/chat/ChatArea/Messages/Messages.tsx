@@ -17,6 +17,7 @@ import ChatBlankState from './ChatBlankState'
 
 interface MessageListProps {
   messages: ChatMessage[]
+  userName?: string | null
 }
 
 interface MessageWrapperProps {
@@ -65,11 +66,7 @@ const AgentMessageWrapper = ({ message }: MessageWrapperProps) => {
       {message.extra_data?.reasoning_steps &&
         message.extra_data.reasoning_steps.length > 0 && (
           <div className="flex items-start gap-4">
-            <Tooltip
-              delayDuration={0}
-              content={<p className="text-accent">Reasoning</p>}
-              side="top"
-            >
+            <Tooltip delayDuration={0} content={<p>Reasoning</p>} side="top">
               <Icon type="reasoning" size="sm" />
             </Tooltip>
             <div className="flex flex-col gap-3">
@@ -81,11 +78,7 @@ const AgentMessageWrapper = ({ message }: MessageWrapperProps) => {
       {message.extra_data?.references &&
         message.extra_data.references.length > 0 && (
           <div className="flex items-start gap-4">
-            <Tooltip
-              delayDuration={0}
-              content={<p className="text-accent">References</p>}
-              side="top"
-            >
+            <Tooltip delayDuration={0} content={<p>References</p>} side="top">
               <Icon type="references" size="sm" />
             </Tooltip>
             <div className="flex flex-col gap-3">
@@ -95,11 +88,7 @@ const AgentMessageWrapper = ({ message }: MessageWrapperProps) => {
         )}
       {message.tool_calls && message.tool_calls.length > 0 && (
         <div className="flex items-start gap-3">
-          <Tooltip
-            delayDuration={0}
-            content={<p className="text-accent">Tool Calls</p>}
-            side="top"
-          >
+          <Tooltip delayDuration={0} content={<p>Tool Calls</p>} side="top">
             <Icon
               type="hammer"
               className="rounded-lg bg-background-secondary p-1"
@@ -151,9 +140,9 @@ const ToolComponent = memo(({ tools }: ToolCallProps) => (
   </div>
 ))
 ToolComponent.displayName = 'ToolComponent'
-const Messages = ({ messages }: MessageListProps) => {
+const Messages = ({ messages, userName }: MessageListProps) => {
   if (messages.length === 0) {
-    return <ChatBlankState />
+    return <ChatBlankState userName={userName} />
   }
 
   return (

@@ -25,7 +25,7 @@ def create_agent() -> Agent:
     database = SqliteDb(db_file=db_file)
 
     return Agent(
-        name="Atendimento Funcional QuarkClinic",
+        name="Kapo",
         model=OpenAIResponses(
             id=os.getenv("AGNO_QA_MODEL", "gpt-5.4-mini"),
             reasoning_effort=os.getenv("AGNO_QA_REASONING_EFFORT", "low"),

@@ -13,5 +13,5 @@ export const APIRoutes = {
   TeamRun: (agentOSUrl: string, teamId: string) =>
     `${agentOSUrl}/teams/${teamId}/runs`,
   DeleteTeamSession: (agentOSUrl: string, teamId: string, sessionId: string) =>
-    `${agentOSUrl}/v1//teams/${teamId}/sessions/${sessionId}`
+    `${agentOSUrl}/teams/${teamId}/sessions/${sessionId}`
 }

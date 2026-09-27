@@ -5,7 +5,7 @@ import Messages from './Messages'
 import ScrollToBottom from '@/components/chat/ChatArea/ScrollToBottom'
 import { StickToBottom } from 'use-stick-to-bottom'
 
-const MessageArea = () => {
+const MessageArea = ({ userName }: { userName?: string | null }) => {
   const { messages } = useStore()
 
   return (
@@ -16,7 +16,7 @@ const MessageArea = () => {
     >
       <StickToBottom.Content className="flex min-h-full flex-col justify-center">
         <div className="mx-auto w-full max-w-2xl space-y-9 px-4 pb-4">
-          <Messages messages={messages} />
+          <Messages messages={messages} userName={userName} />
         </div>
       </StickToBottom.Content>
       <ScrollToBottom />

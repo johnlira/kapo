@@ -60,3 +60,8 @@ if ($script:falhas.Count -gt 0) {
     }
     exit 1
 }
+
+if ($script:atualizados -gt 0) {
+    (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") |
+        Set-Content -Path (Join-Path $root ".ultima-sincronizacao-producao")
+}
