@@ -289,6 +289,18 @@ export interface Sessions extends SessionEntry {
 }
 
 export interface ChatEntry {
+  run_input?: string
+  input?: { input_content?: string }
+  content?: string | object | null
+  status?: string
+  events?: Array<{ event: string; error_id?: string }>
+  created_at: number
+  tools?: ToolCall[]
+  extra_data?: AgentExtraData
+  images?: ImageData[]
+  videos?: VideoData[]
+  audio?: AudioData[]
+  response_audio?: ResponseAudio
   message: {
     role: 'user' | 'system' | 'tool' | 'assistant'
     content: string

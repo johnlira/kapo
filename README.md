@@ -107,18 +107,20 @@ do chat. O backend valida o token Google e permite somente o domínio Workspace
 ou os e-mails pessoais explicitamente listados. O Agno associa sessões ao
 `sub` verificado do Google; os testes de isolamento cobrem leitura, listagem,
 exclusão e execução com `user_id` forjado na versão instalada do Agno (3.0.11).
-O token Google atual não é renovado automaticamente: após expirar, saia e entre
-de novo para continuar usando o chat.
+O proxy reutiliza o JWT curto do backend durante sua validade e, quando
+necessário, renova o Google ID token com o refresh token da sessão OAuth.
+Se a renovação falhar ou o refresh token for revogado, entre novamente.
 
 Cada conversa da UI mantém o `session_id` devolvido pelo AgentOS nos turnos
 seguintes; **New Chat** limpa esse identificador e inicia outra sessão. O
 agente usa o histórico recente para interpretar referências curtas na mesma
 conversa e pede esclarecimento quando houver mais de uma interpretação relevante.
 
-O `agent-ui/README.md` é documentação upstream e descreve o Agno v2. Esta
-integração usa AgentOS v3.0.11; os testes locais verificam o isolamento de sessões,
-e a compatibilidade de login e streaming deve ser validada no host após configurar
-as credenciais Google. Repita a validação ao atualizar a UI ou o SDK.
+O `agent-ui/README.md` é documentação upstream para Agno v2; para instalar e
+conectar o Kapo, siga as instruções deste README. Esta integração usa AgentOS
+v3.0.11; os testes locais verificam o isolamento de sessões, e a compatibilidade
+de login e streaming deve ser validada no host após configurar as credenciais
+Google. Repita a validação ao atualizar a UI ou o SDK.
 
 Para conectar o serviço ao Agno OS em `os.agno.com`, publique o AgentOS em um
 endereço HTTPS acessível pela internet (por exemplo, atrás de um proxy reverso com

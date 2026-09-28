@@ -1,4 +1,4 @@
-import { RunResponseContent } from '@/types/os'
+import { RunEvent, RunResponseContent } from '@/types/os'
 import { handleExpiredSession } from '@/api/auth-expiry'
 import { useCallback } from 'react'
 
@@ -197,6 +197,23 @@ export default function useAIResponseStream() {
 
       // Buffer to accumulate partial JSON data.
       let buffer = ''
+      let terminalEventReceived = false
+      const handleChunk = (chunk: RunResponseContent) => {
+        if (terminalEventReceived) return
+        if (
+          [
+            RunEvent.RunCompleted,
+            RunEvent.RunError,
+            RunEvent.RunCancelled,
+            RunEvent.TeamRunCompleted,
+            RunEvent.TeamRunError,
+            RunEvent.TeamRunCancelled
+          ].includes(chunk.event)
+        ) {
+          terminalEventReceived = true
+        }
+        onChunk(chunk)
+      }
 
       try {
         const response = await fetch(apiUrl, {
@@ -215,7 +232,9 @@ export default function useAIResponseStream() {
         })
 
         if (handleExpiredSession(response)) {
-          onComplete()
+          onError(
+            new Error('Sua sessão expirou. Entre novamente para continuar.')
+          )
           return
         }
 
@@ -237,7 +256,10 @@ export default function useAIResponseStream() {
           const { done, value } = await reader.read()
           if (done) {
             // Process any final data in the buffer.
-            buffer = parseBuffer(buffer, onChunk)
+            buffer += decoder.decode()
+            buffer = parseBuffer(buffer, handleChunk)
+            if (!terminalEventReceived)
+              throw new Error('A resposta foi interrompida. Tente novamente.')
             onComplete()
             return
           }
@@ -245,7 +267,7 @@ export default function useAIResponseStream() {
           buffer += decoder.decode(value, { stream: true })
 
           // Parse any complete JSON objects available in the buffer.
-          buffer = parseBuffer(buffer, onChunk)
+          buffer = parseBuffer(buffer, handleChunk)
           await processStream()
         }
         await processStream()

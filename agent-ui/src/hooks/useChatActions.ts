@@ -6,6 +6,7 @@ import { useStore } from '../store'
 import { AgentDetails, type ChatMessage } from '@/types/os'
 import { getAgentsAPI, getStatusAPI } from '@/api/os'
 import { useQueryState } from 'nuqs'
+import { invalidateSessionRequest } from './useSessionLoader'
 
 const useChatActions = () => {
   const { chatInputRef } = useStore()
@@ -42,6 +43,8 @@ const useChatActions = () => {
   }, [selectedEndpoint])
 
   const clearChat = useCallback(() => {
+    invalidateSessionRequest()
+    useStore.getState().setSelectedSessionId(null)
     setMessages([])
     setSessionId(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -5,17 +5,16 @@ import { toast } from 'sonner'
 import { ChatMessage, ToolCall, ReasoningMessage, ChatEntry } from '@/types/os'
 import { getJsonMarkdown } from '@/lib/utils'
 
-interface SessionResponse {
-  session_id: string
-  agent_id: string
-  user_id: string | null
-  runs?: ChatEntry[]
-  memory: {
-    runs?: ChatEntry[]
-    chats?: ChatEntry[]
-  }
-  agent_data: Record<string, unknown>
-}
+const SCOPE_REPLY =
+  'Só posso orientar sobre funcionalidades e regras de negócio do QuarkClinic.'
+
+// Session rows own separate hook instances; the store keeps the current
+// selection so an older request cannot overwrite a newer chat.
+let activeSessionRequest = 0
+let activeSessionsRequest = 0
+
+export const invalidateSessionRequest = () => ++activeSessionRequest
+export const invalidateSessionsRequest = () => ++activeSessionsRequest
 
 interface LoaderArgs {
   entityType: 'agent' | 'team' | null
@@ -32,8 +31,12 @@ const useSessionLoader = () => {
 
   const getSessions = useCallback(
     async ({ entityType, agentId, teamId, dbId }: LoaderArgs) => {
+      const request = invalidateSessionsRequest()
       const selectedId = entityType === 'agent' ? agentId : teamId
-      if (!selectedEndpoint || !entityType || !selectedId || !dbId) return
+      if (!selectedEndpoint || !entityType || !selectedId || !dbId) {
+        setIsSessionsLoading(false)
+        return
+      }
 
       try {
         setIsSessionsLoading(true)
@@ -44,12 +47,16 @@ const useSessionLoader = () => {
           selectedId,
           dbId
         )
-        setSessionsData(sessions.data ?? [])
+        if (request === activeSessionsRequest) {
+          setSessionsData(sessions.data ?? [])
+        }
       } catch {
-        toast.error('Error loading sessions')
-        setSessionsData([])
+        if (request === activeSessionsRequest) {
+          toast.error('Error loading sessions')
+          setSessionsData([])
+        }
       } finally {
-        setIsSessionsLoading(false)
+        if (request === activeSessionsRequest) setIsSessionsLoading(false)
       }
     },
     [selectedEndpoint, setSessionsData, setIsSessionsLoading]
@@ -60,6 +67,7 @@ const useSessionLoader = () => {
       { entityType, agentId, teamId, dbId }: LoaderArgs,
       sessionId: string
     ) => {
+      const request = invalidateSessionRequest()
       const selectedId = entityType === 'agent' ? agentId : teamId
       if (
         !selectedEndpoint ||
@@ -71,26 +79,40 @@ const useSessionLoader = () => {
         return
 
       try {
-        const response: SessionResponse = await getSessionAPI(
+        const response: ChatEntry[] | null = await getSessionAPI(
           selectedEndpoint,
           entityType,
           sessionId,
           dbId
         )
+        if (
+          request !== activeSessionRequest ||
+          useStore.getState().selectedSessionId !== sessionId ||
+          useStore.getState().isStreaming
+        )
+          return null
         if (response) {
           if (Array.isArray(response)) {
             const messagesFor = response.flatMap((run) => {
               const filteredMessages: ChatMessage[] = []
 
               if (run) {
+                const input = run.run_input ?? run.input?.input_content
                 filteredMessages.push({
                   role: 'user',
-                  content: run.run_input ?? '',
+                  content: typeof input === 'string' ? input : '',
                   created_at: run.created_at
                 })
               }
 
               if (run) {
+                const offTopic =
+                  run.status === 'ERROR' &&
+                  run.events?.some(
+                    (event) =>
+                      event.event === 'RunError' &&
+                      event.error_id === 'off_topic'
+                  )
                 const toolCalls = [
                   ...(run.tools ?? []),
                   ...(run.extra_data?.reasoning_messages ?? []).reduce(
@@ -116,7 +138,9 @@ const useSessionLoader = () => {
 
                 filteredMessages.push({
                   role: 'agent',
-                  content: (run.content as string) ?? '',
+                  content: offTopic
+                    ? SCOPE_REPLY
+                    : ((run.content as string) ?? ''),
                   tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
                   extra_data: run.extra_data,
                   images: run.images,
@@ -152,6 +176,12 @@ const useSessionLoader = () => {
               }
             )
 
+            if (
+              request !== activeSessionRequest ||
+              useStore.getState().selectedSessionId !== sessionId ||
+              useStore.getState().isStreaming
+            )
+              return null
             setMessages(processedMessages)
             return processedMessages
           }

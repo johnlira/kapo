@@ -8,6 +8,7 @@ import { RunEvent, RunResponseContent, type RunResponse } from '@/types/os'
 import useAIResponseStream from './useAIResponseStream'
 import { ToolCall } from '@/types/os'
 import { useQueryState } from 'nuqs'
+import { invalidateSessionRequest } from './useSessionLoader'
 
 const extractReadableContent = (content: object): string | undefined => {
   const record = content as Record<string, unknown>
@@ -37,7 +38,11 @@ const useAIChatStreamHandler = () => {
       const newMessages = [...prevMessages]
       const lastMessage = newMessages[newMessages.length - 1]
       if (lastMessage && lastMessage.role === 'agent') {
-        lastMessage.streamingError = true
+        newMessages[newMessages.length - 1] = {
+          ...lastMessage,
+          streamingError: true,
+          active_tool_name: null
+        }
       }
       return newMessages
     })
@@ -107,6 +112,18 @@ const useAIChatStreamHandler = () => {
   const handleStreamResponse = useCallback(
     async (input: string | FormData) => {
       const startedAt = Date.now()
+      const selectedSessionId = sessionId
+      let assignedSessionId: string | null = null
+      const isCurrentChat = () =>
+        useStore.getState().selectedSessionId ===
+        (assignedSessionId ?? selectedSessionId)
+      const current = useStore.getState()
+      if (current.selectedSessionId !== selectedSessionId) {
+        current.setSelectedSessionId(selectedSessionId)
+        current.setMessages([])
+      }
+      setStreamingErrorMessage('')
+      invalidateSessionRequest()
       setIsStreaming(true)
 
       const formData = input instanceof FormData ? input : new FormData()
@@ -146,7 +163,6 @@ const useAIChatStreamHandler = () => {
       })
 
       let lastContent = ''
-      let newSessionId = sessionId
       try {
         const endpointUrl = selectedEndpoint
 
@@ -175,14 +191,17 @@ const useAIChatStreamHandler = () => {
           apiUrl: RunUrl,
           requestBody: formData,
           onChunk: (chunk: RunResponse) => {
+            if (!isCurrentChat()) return
+            if (chunk.session_id && !selectedSessionId && !assignedSessionId) {
+              assignedSessionId = chunk.session_id
+              useStore.getState().setSelectedSessionId(chunk.session_id)
+              setSessionId(chunk.session_id)
+            }
             if (
               chunk.event === RunEvent.RunStarted ||
-              chunk.event === RunEvent.TeamRunStarted ||
-              chunk.event === RunEvent.ReasoningStarted ||
-              chunk.event === RunEvent.TeamReasoningStarted
+              chunk.event === RunEvent.TeamRunStarted
             ) {
-              newSessionId = chunk.session_id as string
-              setSessionId(chunk.session_id as string)
+              if (chunk.session_id) setSessionId(chunk.session_id)
               if (
                 (!sessionId || sessionId !== chunk.session_id) &&
                 chunk.session_id
@@ -212,6 +231,7 @@ const useAIChatStreamHandler = () => {
                 const newMessages = [...prevMessages]
                 const lastMessage = newMessages[newMessages.length - 1]
                 if (lastMessage && lastMessage.role === 'agent') {
+                  const updatedMessage = { ...lastMessage }
                   const toolCalls = processChunkToolCalls(
                     chunk,
                     lastMessage.tool_calls
@@ -220,9 +240,9 @@ const useAIChatStreamHandler = () => {
                     chunk.event === RunEvent.ToolCallStarted ||
                     chunk.event === RunEvent.TeamToolCallStarted
                   const incomingTool = chunk.tool ?? chunk.tools?.at(-1)
-                  lastMessage.tool_calls = toolCalls
+                  updatedMessage.tool_calls = toolCalls
                   if (isToolStart) {
-                    lastMessage.active_tool_name =
+                    updatedMessage.active_tool_name =
                       incomingTool?.tool_name ?? lastMessage.active_tool_name
                   } else if (
                     !incomingTool?.tool_call_id ||
@@ -231,8 +251,9 @@ const useAIChatStreamHandler = () => {
                         toolCall.tool_name === lastMessage.active_tool_name
                     )?.tool_call_id === incomingTool.tool_call_id
                   ) {
-                    lastMessage.active_tool_name = null
+                    updatedMessage.active_tool_name = null
                   }
+                  newMessages[newMessages.length - 1] = updatedMessage
                 }
                 return newMessages
               })
@@ -243,63 +264,62 @@ const useAIChatStreamHandler = () => {
               setMessages((prevMessages) => {
                 const newMessages = [...prevMessages]
                 const lastMessage = newMessages[newMessages.length - 1]
-                if (
-                  lastMessage &&
-                  lastMessage.role === 'agent' &&
-                  typeof chunk.content === 'string'
-                ) {
-                  const uniqueContent = chunk.content.replace(lastContent, '')
-                  lastMessage.content += uniqueContent
+                if (!lastMessage || lastMessage.role !== 'agent')
+                  return newMessages
+                const updatedMessage = { ...lastMessage }
+                if (typeof chunk.content === 'string') {
+                  const uniqueContent = chunk.content.startsWith(lastContent)
+                    ? chunk.content.slice(lastContent.length)
+                    : chunk.content
+                  updatedMessage.content += uniqueContent
                   lastContent = chunk.content
 
                   // Handle tool calls streaming
-                  lastMessage.tool_calls = processChunkToolCalls(
+                  updatedMessage.tool_calls = processChunkToolCalls(
                     chunk,
                     lastMessage.tool_calls
                   )
-                  if (lastMessage.thinking_seconds === undefined) {
-                    lastMessage.thinking_seconds = Math.max(
+                  if (updatedMessage.thinking_seconds === undefined) {
+                    updatedMessage.thinking_seconds = Math.max(
                       0,
                       Math.floor((Date.now() - startedAt) / 1000)
                     )
                   }
                   if (chunk.extra_data?.reasoning_steps) {
-                    lastMessage.extra_data = {
-                      ...lastMessage.extra_data,
+                    updatedMessage.extra_data = {
+                      ...updatedMessage.extra_data,
                       reasoning_steps: chunk.extra_data.reasoning_steps
                     }
                   }
 
                   if (chunk.extra_data?.references) {
-                    lastMessage.extra_data = {
-                      ...lastMessage.extra_data,
+                    updatedMessage.extra_data = {
+                      ...updatedMessage.extra_data,
                       references: chunk.extra_data.references
                     }
                   }
 
-                  lastMessage.created_at =
-                    chunk.created_at ?? lastMessage.created_at
+                  updatedMessage.created_at =
+                    chunk.created_at ?? updatedMessage.created_at
                   if (chunk.images) {
-                    lastMessage.images = chunk.images
+                    updatedMessage.images = chunk.images
                   }
                   if (chunk.videos) {
-                    lastMessage.videos = chunk.videos
+                    updatedMessage.videos = chunk.videos
                   }
                   if (chunk.audio) {
-                    lastMessage.audio = chunk.audio
+                    updatedMessage.audio = chunk.audio
                   }
                 } else if (
-                  lastMessage &&
-                  lastMessage.role === 'agent' &&
                   typeof chunk?.content !== 'string' &&
                   chunk.content
                 ) {
                   const readableContent = extractReadableContent(chunk.content)
                   if (readableContent) {
-                    lastMessage.content += readableContent
+                    updatedMessage.content += readableContent
                     lastContent = readableContent
-                    if (lastMessage.thinking_seconds === undefined) {
-                      lastMessage.thinking_seconds = Math.max(
+                    if (updatedMessage.thinking_seconds === undefined) {
+                      updatedMessage.thinking_seconds = Math.max(
                         0,
                         Math.floor((Date.now() - startedAt) / 1000)
                       )
@@ -310,12 +330,14 @@ const useAIChatStreamHandler = () => {
                   typeof chunk.response_audio?.transcript === 'string'
                 ) {
                   const transcript = chunk.response_audio.transcript
-                  lastMessage.response_audio = {
-                    ...lastMessage.response_audio,
+                  updatedMessage.response_audio = {
+                    ...updatedMessage.response_audio,
                     transcript:
-                      lastMessage.response_audio?.transcript + transcript
+                      (updatedMessage.response_audio?.transcript ?? '') +
+                      transcript
                   }
                 }
+                newMessages[newMessages.length - 1] = updatedMessage
                 return newMessages
               })
             } else if (
@@ -329,9 +351,12 @@ const useAIChatStreamHandler = () => {
                   const existingSteps =
                     lastMessage.extra_data?.reasoning_steps ?? []
                   const incomingSteps = chunk.extra_data?.reasoning_steps ?? []
-                  lastMessage.extra_data = {
-                    ...lastMessage.extra_data,
-                    reasoning_steps: [...existingSteps, ...incomingSteps]
+                  newMessages[newMessages.length - 1] = {
+                    ...lastMessage,
+                    extra_data: {
+                      ...lastMessage.extra_data,
+                      reasoning_steps: [...existingSteps, ...incomingSteps]
+                    }
                   }
                 }
                 return newMessages
@@ -345,9 +370,12 @@ const useAIChatStreamHandler = () => {
                 const lastMessage = newMessages[newMessages.length - 1]
                 if (lastMessage && lastMessage.role === 'agent') {
                   if (chunk.extra_data?.reasoning_steps) {
-                    lastMessage.extra_data = {
-                      ...lastMessage.extra_data,
-                      reasoning_steps: chunk.extra_data.reasoning_steps
+                    newMessages[newMessages.length - 1] = {
+                      ...lastMessage,
+                      extra_data: {
+                        ...lastMessage.extra_data,
+                        reasoning_steps: chunk.extra_data.reasoning_steps
+                      }
                     }
                   }
                 }
@@ -355,6 +383,7 @@ const useAIChatStreamHandler = () => {
               })
             } else if (
               chunk.event === RunEvent.RunError ||
+              chunk.event === RunEvent.RunCancelled ||
               chunk.event === RunEvent.TeamRunError ||
               chunk.event === RunEvent.TeamRunCancelled
             ) {
@@ -391,14 +420,6 @@ const useAIChatStreamHandler = () => {
                   ? 'Run cancelled'
                   : 'Error during run')
               setStreamingErrorMessage(errorContent)
-              if (newSessionId) {
-                setSessionsData(
-                  (prevSessionsData) =>
-                    prevSessionsData?.filter(
-                      (session) => session.session_id !== newSessionId
-                    ) ?? null
-                )
-              }
             } else if (
               chunk.event === RunEvent.UpdatingMemory ||
               chunk.event === RunEvent.TeamMemoryUpdateStarted ||
@@ -459,34 +480,20 @@ const useAIChatStreamHandler = () => {
             }
           },
           onError: (error) => {
+            if (!isCurrentChat()) return
             updateMessagesWithErrorState()
             setStreamingErrorMessage(error.message)
-            if (newSessionId) {
-              setSessionsData(
-                (prevSessionsData) =>
-                  prevSessionsData?.filter(
-                    (session) => session.session_id !== newSessionId
-                  ) ?? null
-              )
-            }
           },
           onComplete: () => {}
         })
       } catch (error) {
+        if (!isCurrentChat()) return
         updateMessagesWithErrorState()
         setStreamingErrorMessage(
           error instanceof Error ? error.message : String(error)
         )
-        if (newSessionId) {
-          setSessionsData(
-            (prevSessionsData) =>
-              prevSessionsData?.filter(
-                (session) => session.session_id !== newSessionId
-              ) ?? null
-          )
-        }
       } finally {
-        focusChatInput()
+        if (isCurrentChat()) focusChatInput()
         setIsStreaming(false)
       }
     },

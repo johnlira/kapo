@@ -2,6 +2,7 @@ import { useQueryState } from 'nuqs'
 import { SessionEntry } from '@/types/os'
 import { Button } from '../../../ui/button'
 import useSessionLoader from '@/hooks/useSessionLoader'
+import { invalidateSessionRequest } from '@/hooks/useSessionLoader'
 import { deleteSessionAPI } from '@/api/os'
 import { useStore } from '@/store'
 import { toast } from 'sonner'
@@ -43,19 +44,22 @@ const SessionItem = ({
         }).format(date)
       : null
 
-  const handleGetSession = async () => {
-    if (!(agentId || teamId || dbId)) return
+  const handleGetSession = () => {
+    if (!dbId || !(agentId || teamId) || useStore.getState().isStreaming) return
 
-    await getSession(
+    invalidateSessionRequest()
+    useStore.getState().setSelectedSessionId(session_id)
+    useStore.getState().setMessages([])
+    setSessionId(session_id)
+    getSession(
       {
         entityType: mode,
         agentId,
         teamId,
-        dbId: dbId ?? ''
+        dbId
       },
       session_id
     )
-    setSessionId(session_id)
   }
 
   const handleDeleteSession = async () => {

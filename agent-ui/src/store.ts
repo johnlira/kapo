@@ -19,6 +19,8 @@ interface Store {
   isEndpointLoading: boolean
   setIsEndpointLoading: (isLoading: boolean) => void
   messages: ChatMessage[]
+  selectedSessionId: string | null
+  setSelectedSessionId: (sessionId: string | null) => void
   setMessages: (
     messages: ChatMessage[] | ((prevMessages: ChatMessage[]) => ChatMessage[])
   ) => void
@@ -57,6 +59,8 @@ export const useStore = create<Store>()((set) => ({
   setIsEndpointLoading: (isLoading) =>
     set(() => ({ isEndpointLoading: isLoading })),
   messages: [],
+  selectedSessionId: null,
+  setSelectedSessionId: (selectedSessionId) => set({ selectedSessionId }),
   setMessages: (messages) =>
     set((state) => ({
       messages:

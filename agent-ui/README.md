@@ -1,5 +1,10 @@
 # Agent UI
 
+> **Kapo:** este documento é o guia original da interface upstream (Agno v2).
+> Para instalar, autenticar e conectar esta integração ao AgentOS v3, siga o
+> [README do projeto](../README.md). As instruções de conexão e tokens abaixo
+> não se aplicam à configuração do Kapo.
+
 A modern chat interface for AgentOS built with Next.js, Tailwind CSS, and TypeScript. This template provides a ready-to-use UI for connecting to and interacting with your AgentOS instances through the Agno platform.
 
 <img src="https://agno-public.s3.us-east-1.amazonaws.com/assets/agent_ui_banner.svg" alt="agent-ui" style="border-radius: 10px; width: 100%; max-width: 800px;" />

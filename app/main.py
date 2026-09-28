@@ -83,6 +83,12 @@ def create_app():
                 if not authorization.startswith("Bearer "):
                     return JSONResponse({"detail": "Bearer token required"}, status_code=401)
                 token = authorization[7:]
+                # Keep dashboard metrics behind Agno's native JWT/PAT verifier;
+                # local Google tokens do not get access to observability.
+                metrics_route = (
+                    (request.method == "GET" and path in ("/metrics", "/metrics/refresh/status"))
+                    or (request.method == "POST" and path == "/metrics/refresh")
+                )
                 if token.startswith("agno_pat_"):
                     # Allow the native AgentOS service-account verifier and RBAC to
                     # authorize read-only Control Plane discovery and observability.
@@ -91,7 +97,7 @@ def create_app():
                                  "/agents", "/metrics", "/traces", "/trace_session_stats")
                         or (len(parts) == 3 and parts[1] in ("agents", "metrics", "traces"))
                     )
-                    if not platform_get:
+                    if not (platform_get or metrics_route):
                         return JSONResponse({"detail": "Not available"}, status_code=404)
                     return await call_next(request)
                 try:
@@ -107,7 +113,7 @@ def create_app():
                                  "/agents", "/metrics", "/traces", "/trace_session_stats")
                         or (len(parts) == 3 and parts[1] in ("agents", "metrics", "traces"))
                     )
-                    if not platform_get:
+                    if not (platform_get or metrics_route):
                         return JSONResponse({"detail": "Not available"}, status_code=404)
                     return await call_next(request)
                 if not token:
@@ -126,6 +132,14 @@ def create_app():
             return await call_next(request)
 
     os_app.add_middleware(ChatSurface)
+    # CORS must wrap our route filter as well, so browser clients can read its
+    # 401/404 responses instead of reporting an opaque "Failed to fetch".
+    from starlette.middleware.cors import CORSMiddleware
+
+    cors = [middleware for middleware in os_app.user_middleware if middleware.cls is CORSMiddleware]
+    os_app.user_middleware[:] = cors + [
+        middleware for middleware in os_app.user_middleware if middleware.cls is not CORSMiddleware
+    ]
     return os_app
 
 

@@ -1,8 +1,12 @@
 import { auth, refreshGoogleIdToken } from '@/auth'
 import { getToken } from 'next-auth/jwt'
+import { createHash } from 'node:crypto'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+const accessTokens = new Map<string, { token: string; expiresAt: number }>()
+const MAX_CACHED_TOKENS = 100
 
 const allowedPaths = (path: string[], method: string) => {
   if (method === 'GET') {
@@ -48,29 +52,6 @@ async function proxy(
     token.email !== session.user.email
   )
     return Response.json({ detail: 'Google session expired' }, { status: 401 })
-
-  let googleIdToken = token.googleIdToken
-  if (
-    typeof googleIdToken !== 'string' ||
-    typeof token.googleIdTokenExpiresAt !== 'number'
-  )
-    return Response.json({ detail: 'Google session expired' }, { status: 401 })
-  if (token.googleIdTokenExpiresAt <= Math.floor(Date.now() / 1000) + 60) {
-    if (typeof token.googleRefreshToken !== 'string')
-      return Response.json(
-        { detail: 'Google session expired. Please sign in again.' },
-        { status: 401 }
-      )
-    try {
-      googleIdToken = (await refreshGoogleIdToken(token.googleRefreshToken))
-        .idToken
-    } catch {
-      return Response.json(
-        { detail: 'Google session expired. Please sign in again.' },
-        { status: 401 }
-      )
-    }
-  }
 
   const base = process.env.AGENTOS_URL
   if (!base)
@@ -118,46 +99,90 @@ async function proxy(
   }
   target.search = new URL(request.url).search
 
-  let exchange: Response
-  try {
-    exchange = await fetch(
-      new URL('auth/google', `${base.replace(/\/+$/, '')}/`),
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id_token: googleIdToken }),
-        cache: 'no-store'
-      }
+  const identity = createHash('sha256')
+    .update(
+      `${base}\0${cookieName}\0${token.googleSub}\0${token.googleRefreshToken ?? token.googleIdToken}`
     )
-  } catch {
-    return Response.json({ detail: 'AgentOS unavailable' }, { status: 502 })
-  }
-  if (!exchange.ok)
-    return Response.json(
-      { detail: 'Google session rejected' },
-      { status: exchange.status === 401 ? 401 : 502 }
-    )
-  let result: { access_token?: unknown; expires_in?: unknown }
-  try {
-    result = await exchange.json()
-  } catch {
-    return Response.json(
-      { detail: 'Invalid AgentOS response' },
-      { status: 502 }
-    )
-  }
+    .digest('hex')
+  const cached = accessTokens.get(identity)
+  const now = Math.floor(Date.now() / 1000)
+  if (cached && cached.expiresAt <= now + 60) accessTokens.delete(identity)
   if (
-    typeof result.access_token !== 'string' ||
-    typeof result.expires_in !== 'number' ||
-    result.expires_in <= 0
+    typeof token.googleIdTokenExpiresAt !== 'number' ||
+    typeof token.googleIdToken !== 'string'
   )
-    return Response.json(
-      { detail: 'Invalid AgentOS response' },
-      { status: 502 }
+    return Response.json({ detail: 'Google session expired' }, { status: 401 })
+
+  let accessToken = cached && cached.expiresAt > now + 60 ? cached.token : null
+  if (!accessToken) {
+    let googleIdToken = token.googleIdToken
+    if (token.googleIdTokenExpiresAt <= now + 60) {
+      if (typeof token.googleRefreshToken !== 'string')
+        return Response.json(
+          { detail: 'Google session expired. Please sign in again.' },
+          { status: 401 }
+        )
+      try {
+        googleIdToken = (await refreshGoogleIdToken(token.googleRefreshToken))
+          .idToken
+      } catch {
+        return Response.json(
+          { detail: 'Google session expired. Please sign in again.' },
+          { status: 401 }
+        )
+      }
+    }
+    let exchange: Response
+    try {
+      exchange = await fetch(
+        new URL('auth/google', `${base.replace(/\/+$/, '')}/`),
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id_token: googleIdToken }),
+          cache: 'no-store'
+        }
+      )
+    } catch {
+      return Response.json({ detail: 'AgentOS unavailable' }, { status: 502 })
+    }
+    if (!exchange.ok)
+      return Response.json(
+        { detail: 'Google session rejected' },
+        { status: exchange.status === 401 ? 401 : 502 }
+      )
+    let result: { access_token?: unknown; expires_in?: unknown }
+    try {
+      result = await exchange.json()
+    } catch {
+      return Response.json(
+        { detail: 'Invalid AgentOS response' },
+        { status: 502 }
+      )
+    }
+    if (
+      typeof result.access_token !== 'string' ||
+      typeof result.expires_in !== 'number' ||
+      result.expires_in <= 0
     )
+      return Response.json(
+        { detail: 'Invalid AgentOS response' },
+        { status: 502 }
+      )
+    accessToken = result.access_token
+    accessTokens.delete(identity)
+    accessTokens.set(identity, {
+      token: accessToken,
+      expiresAt: now + result.expires_in
+    })
+    if (accessTokens.size > MAX_CACHED_TOKENS) {
+      const oldest = accessTokens.keys().next().value
+      if (oldest) accessTokens.delete(oldest)
+    }
+  }
 
   const headers = new Headers()
-  headers.set('authorization', `Bearer ${result.access_token}`)
+  headers.set('authorization', `Bearer ${accessToken}`)
   const contentType = request.headers.get('content-type')
   if (contentType && request.method === 'POST')
     headers.set('content-type', contentType)
@@ -172,6 +197,7 @@ async function proxy(
       cache: 'no-store',
       signal: request.signal
     } as RequestInit)
+    if (upstream.status === 401 && cached) accessTokens.delete(identity)
     const responseHeaders = new Headers()
     const responseType = upstream.headers.get('content-type')
     if (responseType) responseHeaders.set('content-type', responseType)

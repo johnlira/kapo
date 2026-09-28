@@ -4,7 +4,10 @@ import { FC, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryState } from 'nuqs'
 
 import { useStore } from '@/store'
-import useSessionLoader from '@/hooks/useSessionLoader'
+import useSessionLoader, {
+  invalidateSessionRequest,
+  invalidateSessionsRequest
+} from '@/hooks/useSessionLoader'
 
 import SessionItem from './SessionItem'
 import SessionBlankState from './SessionBlankState'
@@ -84,14 +87,22 @@ const Sessions = () => {
   }, [])
 
   useEffect(() => {
-    // RunStarted updates the URL before the run is persisted. The active chat
-    // already has its messages; only hydrate history on a fresh page load.
+    // RunStarted also changes the URL while the chat is active; never fetch an
+    // unpersisted run or invalidate its in-flight response.
+    if (!hydrated) return
+    const current = useStore.getState()
+    if (current.isStreaming && current.selectedSessionId === sessionId) return
+    if (current.selectedSessionId !== sessionId) {
+      invalidateSessionRequest()
+      current.setSelectedSessionId(sessionId)
+      current.setMessages([])
+    }
+    // Hydrate only when the selected conversation has no messages locally.
     if (
       hydrated &&
       sessionId &&
       selectedEndpoint &&
       (agentId || teamId) &&
-      !useStore.getState().isStreaming &&
       useStore.getState().messages.length === 0
     ) {
       const entityType = agentId ? 'agent' : 'team'
@@ -101,8 +112,14 @@ const Sessions = () => {
   }, [hydrated, sessionId, selectedEndpoint, agentId, teamId, dbId])
 
   useEffect(() => {
-    if (!selectedEndpoint || isEndpointLoading) return
+    if (!selectedEndpoint || isEndpointLoading) {
+      invalidateSessionsRequest()
+      useStore.getState().setIsSessionsLoading(false)
+      return
+    }
     if (!(agentId || teamId || dbId)) {
+      invalidateSessionsRequest()
+      useStore.getState().setIsSessionsLoading(false)
       setSessionsData([])
       return
     }
@@ -123,6 +140,14 @@ const Sessions = () => {
     getSessions,
     dbId
   ])
+
+  useEffect(
+    () => () => {
+      invalidateSessionRequest()
+      invalidateSessionsRequest()
+    },
+    []
+  )
 
   const groupedSessions = useMemo(() => {
     const now = Date.now()

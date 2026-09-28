@@ -124,7 +124,7 @@ class AuthIsolationTests(unittest.TestCase):
         self.assertNotEqual(response.json().get("detail"), "Not available")
         self.assertEqual(
             self.client.post("/metrics/refresh", headers={"Authorization": "Bearer agno_pat_unregistered"}).status_code,
-            404,
+            401,
         )
 
     def test_agno_os_browser_preflight_uses_native_cors(self):
@@ -138,6 +138,18 @@ class AuthIsolationTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.headers.get("access-control-allow-origin"), "https://os.agno.com")
+
+    def test_metrics_access_failures_are_readable_from_agno_os(self):
+        origin = {"Origin": "https://os.agno.com"}
+        for headers, status in (
+            (origin, 401),
+            ({**origin, **self.headers("alice")}, 404),
+            ({**origin, "Authorization": "Bearer agno_pat_unregistered"}, 401),
+        ):
+            with self.subTest(status=status, credential=headers.get("Authorization")):
+                response = self.client.get("/metrics", headers=headers)
+                self.assertEqual(response.status_code, status, response.text)
+                self.assertEqual(response.headers.get("access-control-allow-origin"), origin["Origin"])
 
     def test_control_plane_rsa_jwt_can_read_metrics(self):
         now = int(time.time())
@@ -153,8 +165,39 @@ class AuthIsolationTests(unittest.TestCase):
             self.platform_private_key,
             algorithm="RS256",
         )
-        response = self.client.get("/metrics", headers={"Authorization": f"Bearer {token}"})
+        response = self.client.get(
+            "/metrics",
+            headers={"Authorization": f"Bearer {token}", "Origin": "https://os.agno.com"},
+        )
         self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.headers.get("access-control-allow-origin"), "https://os.agno.com")
+
+        status = self.client.get(
+            "/metrics/refresh/status",
+            headers={"Authorization": f"Bearer {token}", "Origin": "https://os.agno.com"},
+        )
+        self.assertEqual(status.status_code, 200, status.text)
+        self.assertEqual(status.headers.get("access-control-allow-origin"), "https://os.agno.com")
+        self.assertEqual(status.json()["status"], "idle")
+
+        denied = self.client.post("/metrics/refresh", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(denied.status_code, 403, denied.text)
+
+        writer = jwt.encode(
+            {
+                "iss": "https://os.agno.com", "sub": "control-plane", "aud": "this-agentos-id",
+                "iat": now, "exp": now + 300, "scopes": ["metrics:write"],
+            },
+            self.platform_private_key,
+            algorithm="RS256",
+        )
+        refresh = self.client.post(
+            "/metrics/refresh?background=true",
+            headers={"Authorization": f"Bearer {writer}", "Origin": "https://os.agno.com"},
+        )
+        self.assertEqual(refresh.status_code, 202, refresh.text)
+        self.assertEqual(refresh.headers.get("access-control-allow-origin"), "https://os.agno.com")
+        self.assertIn(refresh.json()["status"], ("started", "already_running"))
 
     def test_run_rejects_foreign_session_and_pins_spoofed_user_id(self):
         agent_id = self.agent_id
